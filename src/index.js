@@ -55,15 +55,15 @@ const COMPARISON_PRESETS = {
     }
     for (let i in a) {
       if (!(i in b)) {
-        return true;
+        return false;
       }
     }
     for (let i in b) {
       if (a[i] !== b[i]) {
-        return true;
+        return false;
       }
     }
-    return false;
+    return true;
   },
   JSON_STRING: (a, b) => {
     const equivalence = maybeEquivalent(a, b);
@@ -214,8 +214,10 @@ const parameterizedSelectorFactoryFactory = ({
       parameterizedSelectorCallStack.pop();
 
       if (previousResult && previousResultComparison(returnValue, previousResult.returnValue)) {
-        // We got back the same result: just update the existing record
+        // We got back the same result: return what we had before and update the record
+        returnValue = previousResult.returnValue;
         previousResult.state = state;
+        newResult.returnValue = returnValue;
         if (options.verboseLoggingEnabled) {
           options.verboseLoggingCallback(`Parameterized selector "${options.displayName}(${keyParamsString})" didn't need to re-run: the result is the same`, previousResult);
         }
@@ -263,7 +265,7 @@ const createParameterizedRootSelector = parameterizedSelectorFactoryFactory({
 const createParameterizedSelector = parameterizedSelectorFactoryFactory({
   createKeyFromParams: KEY_PRESETS.JSON_STRING,
   incomingStateComparison: COMPARISON_PRESETS.SAME_REFERENCE,
-  previousResultComparison: COMPARISON_PRESETS.SAME_REFERENCE,
+  previousResultComparison: COMPARISON_PRESETS.SHALLOW_EQUAL,
   isRootSelector: false,
   treatNonRootSelectorsAsDependencies: true,
 });
