@@ -1,4 +1,9 @@
+*~
 .DS_Store
 .idea
+.vscode
+*.log*
+*.swp
+
 dist
 node_modules
