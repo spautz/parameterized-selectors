@@ -1,5 +1,8 @@
 /* global __DEV__ */
 
+//
+// Internal setup and bookkeeping
+//
 
 const willThrowErrorIfNotSet = label => () => {
   throw new Error(`parameterizedSelector: ${label} must be set.`);
@@ -22,10 +25,17 @@ const defaultOptions = {
   warningsCallback: console.warn,
 };
 
-// When a parameterizedSelector is called, we'll note what other parameterizedSelectors it calls here,
-// so that we know which dependencies to dirty-check the next time it runs.
+/**
+ * When a parameterizedSelector is run, we'll add it to this stack so that *other* parameterizedSelectors
+ * can register themselves as dependencies for it. This let us know which dependencies to dirty-check
+ * the next time it runs.
+ */
 const parameterizedSelectorCallStack = [];
 
+/**
+ * Each selector needs a unique displayName. We'll pull that from options or the internalFn if possible,
+ * but if we have to fall back to raw numbers we'll use this counter to keep them distinct.
+ */
 let unnamedCount = 0;
 
 
@@ -48,7 +58,7 @@ const cannotPossiblyBeEqual = (a, b) => {
   } else if (b) {
     return true;
   }
-  return false;
+  return null;
 };
 
 const COMPARISON_PRESETS = {
@@ -91,7 +101,7 @@ const COMPARISON_PRESETS = {
 const KEY_PRESETS = {
   JSON_STRING: JSON.stringify,
   JSON_STRING_WITH_UNSTABLE_KEYS: (obj) => {
-    if (obj) {
+    if (obj && typeof obj === 'object') {
       const newObject = {};
       const sortedKeys = Object.keys(obj).sort();
       for (let i = 0; i < sortedKeys.length; i += 1) {
@@ -110,18 +120,19 @@ const KEY_PRESETS = {
 //
 
 /**
+ * This is where ALL parameterized selectors come from: both 'root' and non-root ones.
  *
- * @param {Function} transformFn required
+ * @param {Function} internalFn required
  * @param {Object} overrideOptions optional
  */
-const parameterizedSelectorFactory = (transformFn, overrideOptions = {}) => {
+const parameterizedSelectorFactory = (internalFn, overrideOptions = {}) => {
   const options = {
     ...defaultOptions,
     ...overrideOptions,
   };
 
   if (!options.displayName) {
-    const functionDisplayName = transformFn.displayName || transformFn.name;
+    const functionDisplayName = internalFn.displayName || internalFn.name;
     if (functionDisplayName) {
       options.displayName = `${options.displayNamePrefix}(${functionDisplayName})`;
     } else {
@@ -141,11 +152,20 @@ const parameterizedSelectorFactory = (transformFn, overrideOptions = {}) => {
     isRootSelector,
   } = options;
 
-  // This is where we'll maintain a stash of prior inputs and results.
+  /**
+   * This is where we'll maintain a stash of prior inputs and results.
+   * Format: {
+   *    [keyParamsString]: resultRecord
+   *  }
+   */
   const previousResultsByParam = {};
-  // When a selector is dirty-checked we want to mark it so that it won't get
-  // re-checked again during the same cycle.
+
+  /**
+   * When a selector is dirty-checked we want to mark it so that it won't get re-checked again during
+   * the same cycle. This effectively acts like a counter of the distinct states we've seen.
+   */
   let invokationId = 0;
+  let stateForLastInvokation = null;
 
   /*
    * This is the real selector function. Whenever it gets run, there are three
@@ -167,7 +187,9 @@ const parameterizedSelectorFactory = (transformFn, overrideOptions = {}) => {
     if (isFirstSelectorInCallStack) {
       // When called from outside (i.e., from mapStateToProps) the state will to be provided.
       [state, keyParams, ...additionalArgs] = args;
-      invokationId += 1;
+      if (!compareIncomingStates(state, stateForLastInvokation)) {
+        invokationId += 1;
+      }
     } else {
       // When called from within another parameterizedSelector, state will be added internally
       // and we'll have some local info as the first argument.
@@ -182,13 +204,15 @@ const parameterizedSelectorFactory = (transformFn, overrideOptions = {}) => {
       `Parameterized selector "${options.displayName}(${keyParamsString})"`;
 
     const previousResult = previousResultsByParam[keyParamsString];
+
     let canUsePreviousResult = false;
     if (previousResult) {
       if (invokationId === previousResult.invokationId) {
         // It's already run in this very cycle: don't even bother comparing state
         canUsePreviousResult = true;
       } else if (compareIncomingStates(state, previousResult.state)) {
-        // No state change means no result change
+        // Even if the invokation thinks it's a new state, if it's not actually new then we can reuse
+        // what we had before.
         canUsePreviousResult = true;
         if (options.verboseLoggingEnabled) {
           options.verboseLoggingCallback(`${verboseLoggingPrefix} won't re-run because state didn't change`);
@@ -261,9 +285,9 @@ const parameterizedSelectorFactory = (transformFn, overrideOptions = {}) => {
       parameterizedSelectorCallStack.push(newResult);
 
       if (isRootSelector) {
-        returnValue = transformFn(state, keyParams, ...additionalArgs);
+        returnValue = internalFn(state, keyParams, ...additionalArgs);
       } else {
-        returnValue = transformFn(keyParams, ...additionalArgs);
+        returnValue = internalFn(keyParams, ...additionalArgs);
       }
       parameterizedSelectorCallStack.pop();
       newResult.recordDependencies = false;
@@ -296,6 +320,15 @@ const parameterizedSelectorFactory = (transformFn, overrideOptions = {}) => {
     return returnValue;
   };
 
+  /**
+   * Indicates that there's a definitely-good valued cached and ready to go.
+   *
+   * @return {Boolean}
+   */
+  parameterizedSelector.hasCachedResult = (keyParams, ...additionalArgs) => {
+    // @TODO
+  };
+
   parameterizedSelector.isParameterizedSelector = true;
   parameterizedSelector.displayName = options.displayName;
   parameterizedSelector.isRootSelector = isRootSelector;
@@ -304,7 +337,7 @@ const parameterizedSelectorFactory = (transformFn, overrideOptions = {}) => {
 };
 
 parameterizedSelectorFactory.withOptions = (localOptions) =>
-  (transformFn, options = {}) => parameterizedSelectorFactory(transformFn, {
+  (internalFn, options = {}) => parameterizedSelectorFactory(internalFn, {
     ...localOptions,
     ...options,
   });
