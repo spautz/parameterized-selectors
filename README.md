@@ -29,8 +29,8 @@ const selectAllAuthorIds = createParameterizedRootSelector(
   state => Object.keys(state.bookIdsByAuthorId),
 );
 
-// Then those get composed into more useful selectors. In this case, the "raw" selectors only return
-// arrays of IDs, while these return arrays populated with real models.
+// Then those get composed into more useful selectors. In this case, the "raw" selectors return arrays
+// of IDs, but `selectAllAuthors` and `selectAllBooksForAuthor` return arrays populated with real models.
 
 const selectAllAuthors = createParameterizedSelector(
   () => {
@@ -61,7 +61,7 @@ const bookList = selectAllBooksForAuthor(params.authorId);
 
 #### Sorting
 
-```
+```javascript
 const selectAuthorsInSortOrder = createParameterizedSelector(
   ({ sortField, reverse }) => {
     if (reverse) {
@@ -89,7 +89,7 @@ const selectAuthorsInSortOrder = createParameterizedSelector(
 
 #### Filtering
 
-```
+```javascript
 const selectBookSearchResults = createParameterizedSelector(
   ({ authorId, searchTerm }) => {
     let listToSearch;

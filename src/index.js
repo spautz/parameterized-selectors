@@ -17,6 +17,7 @@ const defaultOptions = {
   isRootSelector: willThrowErrorIfNotSet('isRootSelector'),
   // Some options can be changed anytime
   displayName: null,
+  useConsoleGroup: true,
   verboseLoggingEnabled: true,
   verboseLoggingCallback: console.log, /* eslint-disable-line no-console */
   performanceChecksEnabled: (typeof __DEV__ !== 'undefined' && !!__DEV__),
@@ -33,7 +34,7 @@ const defaultOptions = {
 const parameterizedSelectorCallStack = [];
 
 /**
- * Each selector needs a unique displayName. We'll pull that from options or the internalFn if possible,
+ * Each selector needs a unique displayName. We'll pull that from options or the innerFn if possible,
  * but if we have to fall back to raw numbers we'll use this counter to keep them distinct.
  */
 let unnamedCount = 0;
@@ -119,17 +120,17 @@ const KEY_PRESETS = {
 /**
  * This is where ALL parameterized selectors come from: both 'root' and non-root ones.
  *
- * @param {Function} internalFn required
+ * @param {Function} innerFn required
  * @param {Object} overrideOptions optional
  */
-const parameterizedSelectorFactory = (internalFn, overrideOptions = {}) => {
+const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
   const options = {
     ...defaultOptions,
     ...overrideOptions,
   };
 
   if (!options.displayName) {
-    const functionDisplayName = internalFn.displayName || internalFn.name;
+    const functionDisplayName = innerFn.displayName || innerFn.name;
     if (functionDisplayName) {
       options.displayName = `${options.displayNamePrefix}(${functionDisplayName})`;
     } else {
@@ -166,9 +167,18 @@ const parameterizedSelectorFactory = (internalFn, overrideOptions = {}) => {
 
 
   /**
-   * This performs common argument massaging for both the parameterizedSelector and its .hasCachedResult()
+   * This performs some standard argument-massaging and inspects the previous result (if any) to determine
+   * whether it's still valid. This is used by both the parameterizedSelector and its .hasCachedResult()
+   *
+   * There are two scenarios where the previous result will still be valid:
+   *  A) Nothing has changed this our inputs since the last time we checked. (Either we've already run
+   *      once during this cycle/invokation, or the state hasn't changed since the last time we ran.)
+   *  B) All of our dependencies have cached results. Note that this means the dependencies *may* re-run
+   *      just to check this one.
+   *
+   * @return {Boolean}
    */
-  const getContextForCall = (args) => {
+  const getPreviousResultInfo = (args) => {
     const parentCaller = parameterizedSelectorCallStack[parameterizedSelectorCallStack.length - 1] || null;
     let state;
     let keyParams;
@@ -189,11 +199,71 @@ const parameterizedSelectorFactory = (internalFn, overrideOptions = {}) => {
 
     // Do we have a prior result for this parameterizedSelector + its keyParams?
     const keyParamsString = createKeyFromParams(keyParams);
-
     const verboseLoggingPrefix = options.verboseLoggingEnabled
       && `Parameterized selector "${options.displayName}(${keyParamsString})"`;
 
     const previousResult = previousResultsByParam[keyParamsString];
+    let canUsePreviousResult = false; // until proven otherwise
+
+    if (previousResult) {
+      if (invokationId === previousResult.invokationId) {
+        // It's already run in this very cycle: don't even bother comparing state
+        canUsePreviousResult = true;
+      } else if (compareIncomingStates(state, previousResult.state)) {
+        // Even if the invokation thinks it's a new state, if it's not actually new then we can reuse
+        // what we had before.
+        canUsePreviousResult = true;
+        if (options.verboseLoggingEnabled) {
+          options.verboseLoggingCallback(`${verboseLoggingPrefix} won't re-run because state didn't change`);
+        }
+      }
+
+      // If canUsePreviousResult is true at this point then we've matched scenario A above
+
+      if (!canUsePreviousResult && previousResult.dependencies.length > 0) {
+        // We need to check the prior dependencies to see if they've actually changed.
+        if (options.verboseLoggingEnabled && options.useConsoleGroup) {
+          console.group(`${verboseLoggingPrefix} is testing its dependencies...`);
+        }
+
+        let anyDependencyHasChanged = false; // until proven guilty
+        for (let i = 0; i < previousResult.dependencies.length; i += 1) {
+          const [previousSelector, previousKeyParams, previousReturnValue] = previousResult.dependencies[i];
+
+          let newReturnValue;
+          if (parentCaller) {
+            // Since we're only checking dependencies, we don't want child selectors to change anything.
+            // This will give them a 'parentCaller.recordDependencies: false'
+            parameterizedSelectorCallStack.push(previousResult);
+            newReturnValue = previousSelector(previousKeyParams, ...additionalArgs);
+            parameterizedSelectorCallStack.pop();
+          } else {
+            // If nobody else is tracking dependencies, we don't want to start now.
+            newReturnValue = previousSelector(state, previousKeyParams, ...additionalArgs);
+          }
+
+          if (!compareSelectorResults(newReturnValue, previousReturnValue)) {
+            anyDependencyHasChanged = true;
+            if (options.verboseLoggingEnabled) {
+              const previousKeyParamString = createKeyFromParams(previousKeyParams);
+              options.verboseLoggingCallback(`${verboseLoggingPrefix} will re-run because "${previousSelector.displayName}(${previousKeyParamString})" returned a new value.`);
+            }
+            break;
+          }
+        }
+        if (!anyDependencyHasChanged) {
+          // Scenario B
+          if (options.verboseLoggingEnabled) {
+            options.verboseLoggingCallback(`${verboseLoggingPrefix} won't re-run because no dependencies changed`);
+          }
+          canUsePreviousResult = true;
+        }
+
+        if (options.verboseLoggingEnabled && options.useConsoleGroup) {
+          console.groupEnd();
+        }
+      }
+    }
 
     return {
       parentCaller,
@@ -203,6 +273,7 @@ const parameterizedSelectorFactory = (internalFn, overrideOptions = {}) => {
       additionalArgs,
       verboseLoggingPrefix,
       previousResult,
+      canUsePreviousResult,
     };
   };
 
@@ -226,65 +297,10 @@ const parameterizedSelectorFactory = (internalFn, overrideOptions = {}) => {
       additionalArgs,
       verboseLoggingPrefix,
       previousResult,
-    } = getContextForCall(args);
+      canUsePreviousResult,
+    } = getPreviousResultInfo(args);
 
-    let canUsePreviousResult = false;
-    if (previousResult) {
-      if (invokationId === previousResult.invokationId) {
-        // It's already run in this very cycle: don't even bother comparing state
-        canUsePreviousResult = true;
-      } else if (compareIncomingStates(state, previousResult.state)) {
-        // Even if the invokation thinks it's a new state, if it's not actually new then we can reuse
-        // what we had before.
-        canUsePreviousResult = true;
-        if (options.verboseLoggingEnabled) {
-          options.verboseLoggingCallback(`${verboseLoggingPrefix} won't re-run because state didn't change`);
-        }
-      }
-
-      // If canUsePreviousResult is true at this point then we've matched scenario A above
-
-      if (!canUsePreviousResult) {
-        if (previousResult.dependencies.length > 0) {
-          // We need to check the prior dependencies to see if they've actually changed.
-          if (options.verboseLoggingEnabled) {
-            options.verboseLoggingCallback(`${verboseLoggingPrefix} is testing its dependencies...`);
-          }
-
-          let anyDependencyHasChanged = false; // until proven guilty
-          for (let i = 0; i < previousResult.dependencies.length; i += 1) {
-            const [previousSelector, previousKeyParams, previousReturnValue] = previousResult.dependencies[i];
-
-            let newReturnValue;
-            if (parentCaller) {
-              // Since we're only checking dependencies, we don't want child selectors to change anything.
-              // This will give them a 'parentCaller.recordDependencies: false'
-              parameterizedSelectorCallStack.push(previousResult);
-              newReturnValue = previousSelector(previousKeyParams, ...additionalArgs);
-              parameterizedSelectorCallStack.pop();
-            } else {
-              // If nobody else is tracking dependencies, we don't want to start now.
-              newReturnValue = previousSelector(state, previousKeyParams, ...additionalArgs);
-            }
-
-            if (!compareSelectorResults(newReturnValue, previousReturnValue)) {
-              anyDependencyHasChanged = true;
-              if (options.verboseLoggingEnabled) {
-                const previousKeyParamString = createKeyFromParams(previousKeyParams);
-                options.verboseLoggingCallback(`${verboseLoggingPrefix} will re-run because "${previousSelector.displayName}(${previousKeyParamString})" returned a new value.`);
-              }
-              break;
-            }
-          }
-          if (!anyDependencyHasChanged) {
-            if (options.verboseLoggingEnabled) {
-              options.verboseLoggingCallback(`${verboseLoggingPrefix} won't re-run because no dependencies changed`);
-            }
-            canUsePreviousResult = true;
-          }
-        }
-      }
-    } else if (options.verboseLoggingEnabled) {
+    if (options.verboseLoggingEnabled && !previousResult) {
       options.verboseLoggingCallback(`${verboseLoggingPrefix} is running for the first time`);
     }
 
@@ -307,9 +323,9 @@ const parameterizedSelectorFactory = (internalFn, overrideOptions = {}) => {
       parameterizedSelectorCallStack.push(newResult);
 
       if (isRootSelector) {
-        returnValue = internalFn(state, keyParams, ...additionalArgs);
+        returnValue = innerFn(state, keyParams, ...additionalArgs);
       } else {
-        returnValue = internalFn(keyParams, ...additionalArgs);
+        returnValue = innerFn(keyParams, ...additionalArgs);
       }
       parameterizedSelectorCallStack.pop();
       newResult.recordDependencies = false;
@@ -342,22 +358,18 @@ const parameterizedSelectorFactory = (internalFn, overrideOptions = {}) => {
   };
 
   /**
-   * Indicates that there's a definitely-good valued cached and ready to go.
+   * This offers a way to inspect a parameterizedSelector call's status without calling it.
+   * Note that *dependencies* may be called, however, to determine whether their values are still valid.
    *
-   * @return {Boolean}
+   * @TODO: Maybe add a flag to distinguish 'cheap' dependencies from expensive ones, and use that to
+   *        decide when/whether to re-run the dependencies to see if they've changed.
    */
   parameterizedSelector.hasCachedResult = (...args) => {
     const {
-      parentCaller,
-      state,
-      keyParams,
-      keyParamsString,
-      additionalArgs,
-      verboseLoggingPrefix,
-      previousResult,
-    } = getContextForCall(args);
+      canUsePreviousResult,
+    } = getPreviousResultInfo(args);
 
-    // @TODO
+    return canUsePreviousResult;
   };
 
   parameterizedSelector.isParameterizedSelector = true;
@@ -368,7 +380,7 @@ const parameterizedSelectorFactory = (internalFn, overrideOptions = {}) => {
 };
 
 parameterizedSelectorFactory.withOptions = localOptions => // eslint-disable-next-line implicit-arrow-linebreak
-  (internalFn, options = {}) => parameterizedSelectorFactory(internalFn, {
+  (innerFn, options = {}) => parameterizedSelectorFactory(innerFn, {
     ...localOptions,
     ...options,
   });
