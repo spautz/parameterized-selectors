@@ -10,7 +10,8 @@
     "url": "git+https://github.com/spautz/parameterized-selectors.git"
   },
   "scripts": {
-    "test": "echo \"TODO\";"
+    "test": "echo \"TODO\"",
+    "lint": "eslint ."
   },
   "main": "src/index.js",
   "jsnext:main": "src/index.js",
@@ -23,17 +24,14 @@
     "test": "test"
   },
   "files": [
-    "dist",
-    "lib",
-    "es",
-    "src",
-    "index.d.ts"
+    "src"
   ],
   "dependencies": {},
   "devDependencies": {
     "babel-cli": "^6.26.0",
     "babel-eslint": "^8.2.6",
-    "eslint": "^5.1.0",
-    "eslint-config-airbnb": "^17.0.0"
+    "eslint": "^5.2.0",
+    "eslint-config-airbnb": "^17.0.0",
+    "eslint-plugin-import": "^2.13.0"
   }
 }

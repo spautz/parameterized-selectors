@@ -18,11 +18,11 @@ const defaultOptions = {
   // Some options can be changed anytime
   displayName: null,
   verboseLoggingEnabled: true,
-  verboseLoggingCallback: console.log,
+  verboseLoggingCallback: console.log, /* eslint-disable-line no-console */
   performanceChecksEnabled: (typeof __DEV__ !== 'undefined' && !!__DEV__),
-  performanceChecksCallback: console.log,
+  performanceChecksCallback: console.log, /* eslint-disable-line no-console */
   warningsEnabled: true,
-  warningsCallback: console.warn,
+  warningsCallback: console.warn, /* eslint-disable-line no-console */
 };
 
 /**
@@ -49,8 +49,8 @@ let unnamedCount = 0;
  */
 const cannotPossiblyBeEqual = (a, b) => {
   if (a) {
-    if (!b || a.length !== b.length || typeof a !== typeof b ||
-      (a instanceof Object && Object.keys(a).length !== Object.keys(b).length)
+    if (!b || a.length !== b.length || typeof a !== typeof b
+      || (a instanceof Object && Object.keys(a).length !== Object.keys(b).length)
     ) {
       // If they aren't the same general thing and shape, don't match
       return true;
@@ -62,8 +62,7 @@ const cannotPossiblyBeEqual = (a, b) => {
 };
 
 const COMPARISON_PRESETS = {
-  SAME_REFERENCE: (a, b) =>
-    a === b,
+  SAME_REFERENCE: (a, b) => a === b,
   SHALLOW_EQUAL: (a, b) => {
     if (a === b) {
       return true;
@@ -71,12 +70,12 @@ const COMPARISON_PRESETS = {
     if (cannotPossiblyBeEqual(a, b)) {
       return false;
     }
-    for (let i in a) {
+    for (const i in a) { // eslint-disable-line no-restricted-syntax
       if (!(i in b)) {
         return false;
       }
     }
-    for (let i in b) {
+    for (const i in b) { // eslint-disable-line no-restricted-syntax
       if (a[i] !== b[i]) {
         return false;
       }
@@ -92,10 +91,8 @@ const COMPARISON_PRESETS = {
     }
     return JSON.stringify(a) === JSON.stringify(b);
   },
-  RUN_EVERY_TIME: () =>
-    false,
-  RUN_ONLY_ONCE: () =>
-    true,
+  RUN_EVERY_TIME: () => false,
+  RUN_ONLY_ONCE: () => true,
 };
 
 const KEY_PRESETS = {
@@ -167,6 +164,48 @@ const parameterizedSelectorFactory = (internalFn, overrideOptions = {}) => {
   let invokationId = 0;
   let stateForLastInvokation = null;
 
+
+  /**
+   * This performs common argument massaging for both the parameterizedSelector and its .hasCachedResult()
+   */
+  const getContextForCall = (args) => {
+    const parentCaller = parameterizedSelectorCallStack[parameterizedSelectorCallStack.length - 1] || null;
+    let state;
+    let keyParams;
+    let additionalArgs;
+    if (parentCaller) {
+      // When called from within another parameterizedSelector, state will be added internally
+      // and we'll have some local info as the first argument.
+      ({ state } = parentCaller);
+      [keyParams, ...additionalArgs] = args;
+    } else {
+      // When called from outside (i.e., from mapStateToProps) the state will to be provided.
+      [state, keyParams, ...additionalArgs] = args;
+      if (!compareIncomingStates(state, stateForLastInvokation)) {
+        invokationId += 1;
+        stateForLastInvokation = state;
+      }
+    }
+
+    // Do we have a prior result for this parameterizedSelector + its keyParams?
+    const keyParamsString = createKeyFromParams(keyParams);
+
+    const verboseLoggingPrefix = options.verboseLoggingEnabled
+      && `Parameterized selector "${options.displayName}(${keyParamsString})"`;
+
+    const previousResult = previousResultsByParam[keyParamsString];
+
+    return {
+      parentCaller,
+      state,
+      keyParams,
+      keyParamsString,
+      additionalArgs,
+      verboseLoggingPrefix,
+      previousResult,
+    };
+  };
+
   /*
    * This is the real selector function. Whenever it gets run, there are three
    * possible outcomes:
@@ -179,31 +218,15 @@ const parameterizedSelectorFactory = (internalFn, overrideOptions = {}) => {
    *      a dependency for whatever function called it.
    */
   const parameterizedSelector = (...args) => {
-    let isFirstSelectorInCallStack = !parameterizedSelectorCallStack.length;
-    let state;
-    let keyParams;
-    let additionalArgs;
-    let recordDependencies = false;
-    if (isFirstSelectorInCallStack) {
-      // When called from outside (i.e., from mapStateToProps) the state will to be provided.
-      [state, keyParams, ...additionalArgs] = args;
-      if (!compareIncomingStates(state, stateForLastInvokation)) {
-        invokationId += 1;
-      }
-    } else {
-      // When called from within another parameterizedSelector, state will be added internally
-      // and we'll have some local info as the first argument.
-      ({ state, recordDependencies } = parameterizedSelectorCallStack[parameterizedSelectorCallStack.length - 1]);
-      [keyParams, ...additionalArgs] = args;
-    }
-
-    // Do we have a prior result for this parameterizedSelector + its keyParams?
-    const keyParamsString = createKeyFromParams(keyParams);
-
-    const verboseLoggingPrefix = options.verboseLoggingEnabled &&
-      `Parameterized selector "${options.displayName}(${keyParamsString})"`;
-
-    const previousResult = previousResultsByParam[keyParamsString];
+    const {
+      parentCaller,
+      state,
+      keyParams,
+      keyParamsString,
+      additionalArgs,
+      verboseLoggingPrefix,
+      previousResult,
+    } = getContextForCall(args);
 
     let canUsePreviousResult = false;
     if (previousResult) {
@@ -233,15 +256,15 @@ const parameterizedSelectorFactory = (internalFn, overrideOptions = {}) => {
             const [previousSelector, previousKeyParams, previousReturnValue] = previousResult.dependencies[i];
 
             let newReturnValue;
-            if (isFirstSelectorInCallStack) {
-              // If nobody else is tracking dependencies, we don't want to start now.
-              newReturnValue = previousSelector(state, previousKeyParams, ...additionalArgs);
-            } else {
-              // Since we're only checking dependencies, we don't want child selectors
-              // to change anything: this will give them a 'recordDependencies: false'
+            if (parentCaller) {
+              // Since we're only checking dependencies, we don't want child selectors to change anything.
+              // This will give them a 'parentCaller.recordDependencies: false'
               parameterizedSelectorCallStack.push(previousResult);
               newReturnValue = previousSelector(previousKeyParams, ...additionalArgs);
               parameterizedSelectorCallStack.pop();
+            } else {
+              // If nobody else is tracking dependencies, we don't want to start now.
+              newReturnValue = previousSelector(state, previousKeyParams, ...additionalArgs);
             }
 
             if (!compareSelectorResults(newReturnValue, previousReturnValue)) {
@@ -259,7 +282,6 @@ const parameterizedSelectorFactory = (internalFn, overrideOptions = {}) => {
             }
             canUsePreviousResult = true;
           }
-
         }
       }
     } else if (options.verboseLoggingEnabled) {
@@ -272,7 +294,7 @@ const parameterizedSelectorFactory = (internalFn, overrideOptions = {}) => {
     let returnValue;
     if (canUsePreviousResult) {
       previousResult.invokationId = invokationId;
-      returnValue = previousResult.returnValue;
+      ({ returnValue } = previousResult);
     } else {
       // Since we're re-running, any dependencies that get called need to be registered.
       const newResult = {
@@ -294,7 +316,7 @@ const parameterizedSelectorFactory = (internalFn, overrideOptions = {}) => {
 
       if (previousResult && compareSelectorResults(returnValue, previousResult.returnValue)) {
         // We got back the same result: return what we had before and update the record
-        returnValue = previousResult.returnValue;
+        ({ returnValue } = previousResult);
         previousResult.invokationId = invokationId;
         newResult.returnValue = returnValue;
         if (options.verboseLoggingEnabled) {
@@ -312,8 +334,7 @@ const parameterizedSelectorFactory = (internalFn, overrideOptions = {}) => {
 
     // We need to add an entry to let the parent/calling parameterizedSelector know that this one was
     // called, regardless of whether or not we used a cached value.
-    if (recordDependencies && !isFirstSelectorInCallStack) {
-      const parentCaller = parameterizedSelectorCallStack[parameterizedSelectorCallStack.length - 1];
+    if (parentCaller && parentCaller.recordDependencies) {
       parentCaller.dependencies.push([parameterizedSelector, keyParams, returnValue]);
     }
 
@@ -325,7 +346,17 @@ const parameterizedSelectorFactory = (internalFn, overrideOptions = {}) => {
    *
    * @return {Boolean}
    */
-  parameterizedSelector.hasCachedResult = (keyParams, ...additionalArgs) => {
+  parameterizedSelector.hasCachedResult = (...args) => {
+    const {
+      parentCaller,
+      state,
+      keyParams,
+      keyParamsString,
+      additionalArgs,
+      verboseLoggingPrefix,
+      previousResult,
+    } = getContextForCall(args);
+
     // @TODO
   };
 
@@ -336,7 +367,7 @@ const parameterizedSelectorFactory = (internalFn, overrideOptions = {}) => {
   return parameterizedSelector;
 };
 
-parameterizedSelectorFactory.withOptions = (localOptions) =>
+parameterizedSelectorFactory.withOptions = localOptions => // eslint-disable-next-line implicit-arrow-linebreak
   (internalFn, options = {}) => parameterizedSelectorFactory(internalFn, {
     ...localOptions,
     ...options,
