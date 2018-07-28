@@ -26,7 +26,9 @@
   "files": [
     "src"
   ],
-  "dependencies": {},
+  "dependencies": {
+    "lodash": "4.17.10"
+  },
   "devDependencies": {
     "babel-cli": "^6.26.0",
     "babel-eslint": "^8.2.6",

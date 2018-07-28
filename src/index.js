@@ -1,5 +1,7 @@
 /* global __DEV__ */
 
+import isEmpty from 'lodash/isEmpty';
+
 //
 // Internal setup and bookkeeping
 //
@@ -15,10 +17,11 @@ const defaultOptions = {
   compareIncomingStates: willThrowErrorIfNotSet('compareIncomingStates'),
   compareSelectorResults: willThrowErrorIfNotSet('compareSelectorResults'),
   isRootSelector: willThrowErrorIfNotSet('isRootSelector'),
+  hasDynamicDependencies: true,
   // Some options can be changed anytime
   displayName: null,
   useConsoleGroup: true,
-  verboseLoggingEnabled: true,
+  verboseLoggingEnabled: false,
   verboseLoggingCallback: console.log, /* eslint-disable-line no-console */
   performanceChecksEnabled: (typeof __DEV__ !== 'undefined' && !!__DEV__),
   performanceChecksCallback: console.log, /* eslint-disable-line no-console */
@@ -64,6 +67,7 @@ const cannotPossiblyBeEqual = (a, b) => {
 
 const COMPARISON_PRESETS = {
   SAME_REFERENCE: (a, b) => a === b,
+  SAME_REFERENCE_OR_EMPTY: (a, b) => a === b || (isEmpty(a) && isEmpty(b)),
   SHALLOW_EQUAL: (a, b) => {
     if (a === b) {
       return true;
@@ -139,7 +143,7 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
     }
   }
   if (options.verboseLoggingEnabled) {
-    options.verboseLoggingCallback(`Creating parameterized selector: "${options.displayName}"`);
+    options.verboseLoggingCallback(`Creating parameterized selector: "${options.displayName}"`, options);
   }
 
   // These options cannot be changed later
@@ -191,7 +195,13 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
     } else {
       // When called from outside (i.e., from mapStateToProps) the state will to be provided.
       [state, keyParams, ...additionalArgs] = args;
-      if (!compareIncomingStates(state, stateForLastInvokation)) {
+      if (
+        invokationId === 0
+        || !state
+        || !stateForLastInvokation
+        || !compareIncomingStates(stateForLastInvokation, state)
+      ) {
+        // New state!
         invokationId += 1;
         stateForLastInvokation = state;
       }
@@ -209,7 +219,7 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
       if (invokationId === previousResult.invokationId) {
         // It's already run in this very cycle: don't even bother comparing state
         canUsePreviousResult = true;
-      } else if (compareIncomingStates(state, previousResult.state)) {
+      } else if (state && previousResult.state && compareIncomingStates(previousResult.state, state)) {
         // Even if the invokation thinks it's a new state, if it's not actually new then we can reuse
         // what we had before.
         canUsePreviousResult = true;
@@ -242,7 +252,7 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
             newReturnValue = previousSelector(state, previousKeyParams, ...additionalArgs);
           }
 
-          if (!compareSelectorResults(newReturnValue, previousReturnValue)) {
+          if (!compareSelectorResults(previousReturnValue, newReturnValue)) {
             anyDependencyHasChanged = true;
             if (options.verboseLoggingEnabled) {
               const previousKeyParamString = createKeyFromParams(previousKeyParams);
@@ -330,7 +340,7 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
       parameterizedSelectorCallStack.pop();
       newResult.recordDependencies = false;
 
-      if (previousResult && compareSelectorResults(returnValue, previousResult.returnValue)) {
+      if (previousResult && compareSelectorResults(previousResult.returnValue, returnValue)) {
         // We got back the same result: return what we had before and update the record
         ({ returnValue } = previousResult);
         previousResult.invokationId = invokationId;
