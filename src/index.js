@@ -17,7 +17,8 @@ const defaultOptions = {
   compareIncomingStates: willThrowErrorIfNotSet('compareIncomingStates'),
   compareSelectorResults: willThrowErrorIfNotSet('compareSelectorResults'),
   isRootSelector: willThrowErrorIfNotSet('isRootSelector'),
-  hasDynamicDependencies: true,
+  hasStaticDepenencies: false,
+
   // Some options can be changed anytime
   displayName: null,
   useConsoleGroup: true,
@@ -152,6 +153,7 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
     compareIncomingStates,
     compareSelectorResults,
     isRootSelector,
+    hasStaticDepenencies,
   } = options;
 
   /**
@@ -252,7 +254,7 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
             newReturnValue = previousSelector(state, previousKeyParams, ...additionalArgs);
           }
 
-          if (!compareSelectorResults(previousReturnValue, newReturnValue)) {
+          if (previousReturnValue !== newReturnValue) {
             anyDependencyHasChanged = true;
             if (options.verboseLoggingEnabled) {
               const previousKeyParamString = createKeyFromParams(previousKeyParams);
@@ -322,23 +324,30 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
       previousResult.invokationId = invokationId;
       ({ returnValue } = previousResult);
     } else {
-      // Since we're re-running, any dependencies that get called need to be registered.
       const newResult = {
         invokationId,
         state,
-        recordDependencies: true,
-        dependencies: [],
+        recordDependencies: !hasStaticDepenencies,
+        dependencies: (previousResult && hasStaticDepenencies) ? previousResult.dependencies : [],
         returnValue: null,
       };
-      parameterizedSelectorCallStack.push(newResult);
+
+      if (parentCaller || newResult.recordDependencies) {
+        // Since we're re-running, any dependencies that get called need to be registered.
+        parameterizedSelectorCallStack.push(newResult);
+      }
 
       if (isRootSelector) {
         returnValue = innerFn(state, keyParams, ...additionalArgs);
       } else {
         returnValue = innerFn(keyParams, ...additionalArgs);
       }
-      parameterizedSelectorCallStack.pop();
-      newResult.recordDependencies = false;
+
+      if (parentCaller || newResult.recordDependencies) {
+        parameterizedSelectorCallStack.pop();
+        newResult.recordDependencies = false;
+      }
+
 
       if (previousResult && compareSelectorResults(previousResult.returnValue, returnValue)) {
         // We got back the same result: return what we had before and update the record
@@ -399,14 +408,14 @@ parameterizedSelectorFactory.withOptions = localOptions => // eslint-disable-nex
 const createParameterizedRootSelector = parameterizedSelectorFactory.withOptions({
   createKeyFromParams: KEY_PRESETS.JSON_STRING,
   compareIncomingStates: COMPARISON_PRESETS.SAME_REFERENCE,
-  compareSelectorResults: COMPARISON_PRESETS.SAME_REFERENCE,
+  compareSelectorResults: COMPARISON_PRESETS.SAME_REFERENCE_OR_EMPTY,
   isRootSelector: true,
 });
 
 const createParameterizedSelector = parameterizedSelectorFactory.withOptions({
   createKeyFromParams: KEY_PRESETS.JSON_STRING,
   compareIncomingStates: COMPARISON_PRESETS.SAME_REFERENCE,
-  compareSelectorResults: COMPARISON_PRESETS.SAME_REFERENCE,
+  compareSelectorResults: COMPARISON_PRESETS.SAME_REFERENCE_OR_EMPTY,
   isRootSelector: false,
 });
 
