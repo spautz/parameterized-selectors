@@ -1,6 +1,7 @@
 /* global __DEV__ */
 
 import isEmpty from 'lodash/isEmpty';
+import isPlainObject from 'lodash/isPlainObject';
 
 //
 // Internal setup and bookkeeping
@@ -102,9 +103,14 @@ const COMPARISON_PRESETS = {
 };
 
 const KEY_PRESETS = {
-  JSON_STRING: JSON.stringify,
-  JSON_STRING_WITH_UNSTABLE_KEYS: (obj) => {
+  JSON_STRING: (obj) => {
     if (obj && typeof obj === 'object') {
+      return JSON.stringify(obj);
+    }
+    return String(obj);
+  },
+  JSON_STRING_WITH_STABLE_KEYS: (obj) => {
+    if (obj && isPlainObject(obj)) {
       const newObject = {};
       const sortedKeys = Object.keys(obj).sort();
       for (let i = 0; i < sortedKeys.length; i += 1) {
@@ -113,7 +119,7 @@ const KEY_PRESETS = {
       }
       return JSON.stringify(newObject);
     }
-    return JSON.stringify(obj);
+    return KEY_PRESETS.JSON_STRING(obj);
   },
 };
 
@@ -164,13 +170,6 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
    */
   const previousResultsByParam = {};
 
-  /**
-   * When a selector is dirty-checked we want to mark it so that it won't get re-checked again during
-   * the same cycle. This effectively acts like a counter of the distinct states we've seen.
-   */
-  let invokationId = 0;
-  let stateForLastInvokation = null;
-
 
   /**
    * This performs some standard argument-massaging and inspects the previous result (if any) to determine
@@ -197,16 +196,6 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
     } else {
       // When called from outside (i.e., from mapStateToProps) the state will to be provided.
       [state, keyParams, ...additionalArgs] = args;
-      if (
-        invokationId === 0
-        || !state
-        || !stateForLastInvokation
-        || !compareIncomingStates(stateForLastInvokation, state)
-      ) {
-        // New state!
-        invokationId += 1;
-        stateForLastInvokation = state;
-      }
     }
 
     // Do we have a prior result for this parameterizedSelector + its keyParams?
@@ -214,51 +203,75 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
     const verboseLoggingPrefix = options.verboseLoggingEnabled
       && `Parameterized selector "${options.displayName}(${keyParamsString})"`;
 
+    if (options.warningsEnabled) {
+      if (!keyParamsString) {
+        options.warningsCallback(`${options.displayName} generated an empty keyParamsString`, {
+          keyParams,
+          keyParamsString,
+          state,
+        });
+      } else if (keyParamsString.length > 100) {
+        options.warningsCallback(`${options.displayName} generated an unusually long keyParamsString`, {
+          keyParams,
+          keyParamsString,
+          state,
+        });
+      }
+    }
+
     const previousResult = previousResultsByParam[keyParamsString];
     let canUsePreviousResult = false; // until proven otherwise
 
+    if (options.verboseLoggingEnabled && options.useConsoleGroup) {
+      console.groupCollapsed(`${verboseLoggingPrefix}.getPreviousResultInfo()`, {
+        parentCaller,
+        state,
+        keyParams,
+        keyParamsString,
+        additionalArgs,
+        verboseLoggingPrefix,
+        previousResult,
+        canUsePreviousResult,
+      });
+    }
+
     if (previousResult) {
-      if (invokationId === previousResult.invokationId) {
-        // It's already run in this very cycle: don't even bother comparing state
-        canUsePreviousResult = true;
-      } else if (state && previousResult.state && compareIncomingStates(previousResult.state, state)) {
-        // Even if the invokation thinks it's a new state, if it's not actually new then we can reuse
-        // what we had before.
+      if (state && previousResult.state && (isRootSelector ? compareIncomingStates(previousResult.state, state) : state === previousResult.state)) {
         canUsePreviousResult = true;
         if (options.verboseLoggingEnabled) {
-          options.verboseLoggingCallback(`${verboseLoggingPrefix} won't re-run because state didn't change`);
+          options.verboseLoggingCallback(`${verboseLoggingPrefix} doesn't need to re-run because state didn't change`);
         }
       }
 
       // If canUsePreviousResult is true at this point then we've matched scenario A above
 
-      if (!canUsePreviousResult && previousResult.dependencies.length > 0) {
+      if (!canUsePreviousResult && !isRootSelector && hasStaticDepenencies && previousResult.dependencies.length > 0) {
         // We need to check the prior dependencies to see if they've actually changed.
-        if (options.verboseLoggingEnabled && options.useConsoleGroup) {
-          console.group(`${verboseLoggingPrefix} is testing its dependencies...`);
+        if (options.verboseLoggingEnabled) {
+          options.verboseLoggingCallback(`${verboseLoggingPrefix} is testing its dependencies...`);
         }
 
         let anyDependencyHasChanged = false; // until proven guilty
         for (let i = 0; i < previousResult.dependencies.length; i += 1) {
           const [previousSelector, previousKeyParams, previousReturnValue] = previousResult.dependencies[i];
 
-          let newReturnValue;
-          if (parentCaller) {
-            // Since we're only checking dependencies, we don't want child selectors to change anything.
-            // This will give them a 'parentCaller.recordDependencies: false'
-            parameterizedSelectorCallStack.push(previousResult);
-            newReturnValue = previousSelector(previousKeyParams, ...additionalArgs);
-            parameterizedSelectorCallStack.pop();
-          } else {
-            // If nobody else is tracking dependencies, we don't want to start now.
-            newReturnValue = previousSelector(state, previousKeyParams, ...additionalArgs);
-          }
+          // Since we're only checking dependencies, we don't want child selectors to change anything.
+          // This will give them a 'parentCaller.recordDependencies: false'
+          parameterizedSelectorCallStack.push({
+            state,
+            isCheckingDependenciesOnly: true,
+          });
+
+          // Does our previous dependency have anything new?
+          const newReturnValue = previousSelector(previousKeyParams, ...additionalArgs);
+
+          parameterizedSelectorCallStack.pop();
 
           if (previousReturnValue !== newReturnValue) {
             anyDependencyHasChanged = true;
             if (options.verboseLoggingEnabled) {
-              const previousKeyParamString = createKeyFromParams(previousKeyParams);
-              options.verboseLoggingCallback(`${verboseLoggingPrefix} will re-run because "${previousSelector.displayName}(${previousKeyParamString})" returned a new value.`);
+              const previousKeyParamString = previousSelector.createKeyFromParams(previousKeyParams);
+              options.verboseLoggingCallback(`${verboseLoggingPrefix} needs to re-run because "${previousSelector.displayName}(${previousKeyParamString})" returned a new value.`);
             }
             break;
           }
@@ -266,15 +279,15 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
         if (!anyDependencyHasChanged) {
           // Scenario B
           if (options.verboseLoggingEnabled) {
-            options.verboseLoggingCallback(`${verboseLoggingPrefix} won't re-run because no dependencies changed`);
+            options.verboseLoggingCallback(`${verboseLoggingPrefix} doesn't need to re-run because no dependencies changed`);
           }
           canUsePreviousResult = true;
         }
-
-        if (options.verboseLoggingEnabled && options.useConsoleGroup) {
-          console.groupEnd();
-        }
       }
+    }
+
+    if (options.verboseLoggingEnabled && options.useConsoleGroup) {
+      console.groupEnd();
     }
 
     return {
@@ -312,6 +325,19 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
       canUsePreviousResult,
     } = getPreviousResultInfo(args);
 
+    if (options.verboseLoggingEnabled && options.useConsoleGroup) {
+      console.groupCollapsed(`${verboseLoggingPrefix} has state:`, {
+        parentCaller,
+        state,
+        keyParams,
+        keyParamsString,
+        additionalArgs,
+        verboseLoggingPrefix,
+        previousResult,
+        canUsePreviousResult,
+      });
+    }
+
     if (options.verboseLoggingEnabled && !previousResult) {
       options.verboseLoggingCallback(`${verboseLoggingPrefix} is running for the first time`);
     }
@@ -321,41 +347,57 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
 
     let returnValue;
     if (canUsePreviousResult) {
-      previousResult.invokationId = invokationId;
       ({ returnValue } = previousResult);
     } else {
       const newResult = {
-        invokationId,
         state,
-        recordDependencies: !hasStaticDepenencies,
-        dependencies: (previousResult && hasStaticDepenencies) ? previousResult.dependencies : [],
+        recordDependencies: !(hasStaticDepenencies && previousResult),
+        dependencies: (hasStaticDepenencies && previousResult) ? previousResult.dependencies : [],
         returnValue: null,
       };
 
-      if (parentCaller || newResult.recordDependencies) {
-        // Since we're re-running, any dependencies that get called need to be registered.
-        parameterizedSelectorCallStack.push(newResult);
+      // Collect dependencies, if appropriate
+      parameterizedSelectorCallStack.push(newResult);
+
+      try {
+        if (isRootSelector) {
+          if (options.verboseLoggingEnabled) {
+            options.verboseLoggingCallback(`${verboseLoggingPrefix} running as a root selector`, {
+              state, keyParams, additionalArgs,
+            });
+          }
+          returnValue = innerFn(state, keyParams, ...additionalArgs);
+        } else {
+          if (options.verboseLoggingEnabled) {
+            options.verboseLoggingCallback(`${verboseLoggingPrefix} running as a normal selector`, {
+              state, keyParams, additionalArgs,
+            });
+          }
+          returnValue = innerFn(keyParams, ...additionalArgs);
+        }
+      } catch (error) {
+        options.warningsCallback(`${verboseLoggingPrefix} threw an exception: ${error.message}`, error);
+        if (options.warningsEnabled) {
+          console.trace();
+        }
       }
 
-      if (isRootSelector) {
-        returnValue = innerFn(state, keyParams, ...additionalArgs);
-      } else {
-        returnValue = innerFn(keyParams, ...additionalArgs);
-      }
-
-      if (parentCaller || newResult.recordDependencies) {
-        parameterizedSelectorCallStack.pop();
-        newResult.recordDependencies = false;
-      }
-
+      parameterizedSelectorCallStack.pop();
+      newResult.recordDependencies = false;
 
       if (previousResult && compareSelectorResults(previousResult.returnValue, returnValue)) {
         // We got back the same result: return what we had before and update the record
         ({ returnValue } = previousResult);
-        previousResult.invokationId = invokationId;
         newResult.returnValue = returnValue;
+        previousResultsByParam[keyParamsString] = newResult;
         if (options.verboseLoggingEnabled) {
-          options.verboseLoggingCallback(`${verboseLoggingPrefix} didn't need to re-run: the result is the same`, previousResult);
+          options.verboseLoggingCallback(`${verboseLoggingPrefix} didn't need to re-run: the result is the same`, {
+            previousResult,
+            newResult: {
+              ...newResult,
+              returnValue,
+            },
+          });
         }
       } else {
         // It really IS new!
@@ -371,6 +413,14 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
     // called, regardless of whether or not we used a cached value.
     if (parentCaller && parentCaller.recordDependencies) {
       parentCaller.dependencies.push([parameterizedSelector, keyParams, returnValue]);
+    }
+
+    if (options.verboseLoggingEnabled && options.useConsoleGroup) {
+      console.groupEnd(`${verboseLoggingPrefix} is done.`, {
+        parentCaller,
+        effectiveResult: previousResultsByParam[keyParamsString],
+        returnValue,
+      });
     }
 
     return returnValue;
@@ -394,6 +444,7 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
   parameterizedSelector.isParameterizedSelector = true;
   parameterizedSelector.displayName = options.displayName;
   parameterizedSelector.isRootSelector = isRootSelector;
+  parameterizedSelector.createKeyFromParams = createKeyFromParams;
 
   return parameterizedSelector;
 };
@@ -406,14 +457,14 @@ parameterizedSelectorFactory.withOptions = localOptions => // eslint-disable-nex
 
 
 const createParameterizedRootSelector = parameterizedSelectorFactory.withOptions({
-  createKeyFromParams: KEY_PRESETS.JSON_STRING,
+  createKeyFromParams: KEY_PRESETS.JSON_STRING_WITH_STABLE_KEYS,
   compareIncomingStates: COMPARISON_PRESETS.SAME_REFERENCE,
   compareSelectorResults: COMPARISON_PRESETS.SAME_REFERENCE_OR_EMPTY,
   isRootSelector: true,
 });
 
 const createParameterizedSelector = parameterizedSelectorFactory.withOptions({
-  createKeyFromParams: KEY_PRESETS.JSON_STRING,
+  createKeyFromParams: KEY_PRESETS.JSON_STRING_WITH_STABLE_KEYS,
   compareIncomingStates: COMPARISON_PRESETS.SAME_REFERENCE,
   compareSelectorResults: COMPARISON_PRESETS.SAME_REFERENCE_OR_EMPTY,
   isRootSelector: false,
