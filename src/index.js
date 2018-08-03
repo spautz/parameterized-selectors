@@ -236,7 +236,11 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
     }
 
     if (previousResult) {
-      if (state && previousResult.state && (isRootSelector ? compareIncomingStates(previousResult.state, state) : state === previousResult.state)) {
+      // compareIncomingStates is only honored for root selectors
+      // @TODO: Need to warn if it's set for a non-root selector
+      if (state && previousResult.state
+        && (isRootSelector ? compareIncomingStates(previousResult.state, state) : state === previousResult.state)
+      ) {
         canUsePreviousResult = true;
         if (options.verboseLoggingEnabled) {
           options.verboseLoggingCallback(`${verboseLoggingPrefix} doesn't need to re-run because state didn't change`);
@@ -247,6 +251,7 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
 
       if (!canUsePreviousResult && !isRootSelector && hasStaticDepenencies && previousResult.dependencies.length > 0) {
         // We need to check the prior dependencies to see if they've actually changed.
+        // @TODO: Need to warn if a root selector has/calls any dependencies
         if (options.verboseLoggingEnabled) {
           options.verboseLoggingCallback(`${verboseLoggingPrefix} is testing its dependencies...`);
         }
@@ -393,10 +398,7 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
         if (options.verboseLoggingEnabled) {
           options.verboseLoggingCallback(`${verboseLoggingPrefix} didn't need to re-run: the result is the same`, {
             previousResult,
-            newResult: {
-              ...newResult,
-              returnValue,
-            },
+            newResult,
           });
         }
       } else {
