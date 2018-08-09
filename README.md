@@ -1,8 +1,35 @@
 # parameterized-selectors
 
-A Reselect-inspired library where selectors can use params.
+A Reselect-inspired library, where selectors can be passed params and their dependencies are calculated automatically.
 
-### Example
+Selector functions can be can be called inline from within each other, even conditionally or within loops, without needing to register dependencies up-front. This makes it easier to use external values like route params, or other arguments.
+
+As with Reselect, functions are only re-run when necessary.
+
+# Getting Started
+
+This project is in its infancy, and does not yet have an installable package or distribution.
+
+If you instruct Babel to transform this module, you can import it by specifying the desired commit hash in package.json. A distributed package is currently planned for *after* the API has stabilized and test coverage has been added.
+
+## Features
+
+<dl>
+  <dt>Pass arguments to selector functions</dt>
+  <dd>Results are memoized by the params in the first argument to each selector, so `selectItems({ categoryId: 3 })` and `selectItems({ categoryId: 4 })` will work properly and be cached independently.</dd>
+
+  <dt>Dynamic auto-detected dependencies</dt>
+  <dd>When a selector runs, any secondary selectors it calls get marked as dependencies. It won't re-run unless those dependencies return something new.</dd>
+
+  <dt>Optimize against no-op changes</dt>
+  <dd>When optimization hints are provided, a selector that returns a 'new' value which is shallowEqual or otherwise equivalent to what it returned previously can halt the re-run process (if you indicate that it should), so that further selectors don't re-run. This can greatly improve performance for selectors that return arrays, since (for example) `map` will always create a new array instance.</dd>
+
+  <dt>Backwards-compatible with Reselect selectors</dt>
+  <dd>A Reselect selector can be wrapped directly in a parameterized root selector, with no additional steps.</dd>
+</dl>
+
+
+## Annotated Example
 
 ```javascript
 import {
@@ -50,7 +77,7 @@ const selectAllBooksForAuthor = createParameterizedSelector(
   },
 );
 
-// Then, in mapStateToProps -- or anywhere where state is exposed -- you'd do something like:
+// Then, in mapStateToProps -- or whereever state is exposed -- you'd call it as a normal function:
 
 const author = selectAuthorById(params.authorId);
 const bookList = selectAllBooksForAuthor(params.authorId);
@@ -116,3 +143,33 @@ const selectBookSearchResults = createParameterizedSelector(
   },
 );
 ```
+
+## Options
+
+A second argument can be passed to `createParameterizedSelector` or `createParameterizedRootSelector` to provide
+performance hints or behavior changes.
+
+**These may change in the near future.** At the moment they are:
+
+Settable at initialization only:
+
+Name | Type | Description
+--- | --- | ---
+createKeyFromParams | Function(params) | Must return a string representation of the params. This will likely be superseded by a custom cache option (with key stringification as a canned preset). 
+compareIncomingStates | Function(previousState, newState) | For root selectors only, return true to indicate that the selector should run because the incoming state is equivalent to the previous state.
+compareSelectorResults | Function(previousResult, newResult) | Return true to indicate that the selector result is equivalent to its previous result, and that the previous result should be returned to callers instead.
+isRootSelector | Boolean | Indicates that the selector receives and can touch `state` directly. This has several consequences for behavior which still need to be documented.
+hasStaticDepenencies | Boolean | Indicates that we can skip the work to dynamically re-determine dependencies on each run.
+
+Settable at any time:
+
+Name | Type | Description
+--- | --- | ---
+displayName | String | A human-readable name for the function, used for debug output and warnings.
+useConsoleGroup | Boolean | Will cause verbose logging to be nested in console groups.
+verboseLoggingEnabled | Boolean | Will fill your console with far too much debug info. This will be cleaned up in the near future.
+verboseLoggingCallback | Function | Gets called for every verboseLogging item; this is `console.log` by default.
+performanceChecksEnabled | Boolean | Will give you warnings or pings if something causes a selector to re-run unnecessarily, or if it encounters other bad smells. (Not yet implemented.)
+performanceChecksCallback | Boolean | Gets called for every failed performanceCheck item. (Not yet implemented.)
+warningsEnabled | Boolean | Will notify you about library misuse and invalid/incompatible options. (Barely implemented, mostly to-do.)
+warningsCallback | Function | Gets called for every warning item; this is `console.warn` by default.
