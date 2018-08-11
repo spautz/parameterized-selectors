@@ -18,7 +18,7 @@ const defaultOptions = {
   compareIncomingStates: willThrowErrorIfNotSet('compareIncomingStates'),
   compareSelectorResults: willThrowErrorIfNotSet('compareSelectorResults'),
   isRootSelector: willThrowErrorIfNotSet('isRootSelector'),
-  hasStaticDependencies: false,
+  hasStaticDepenencies: false,
 
   // Some options can be changed anytime
   displayName: null,
@@ -37,6 +37,12 @@ const defaultOptions = {
  * the next time it runs.
  */
 const parameterizedSelectorCallStack = [];
+
+/**
+ * Here we can track the number of recomputations due to cache misses, state changes, param changes etc
+ * for testing and performance purposes
+ */
+let recomputations = 0;
 
 /**
  * Each selector needs a unique displayName. We'll pull that from options or the innerFn if possible,
@@ -159,7 +165,7 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
     compareIncomingStates,
     compareSelectorResults,
     isRootSelector,
-    hasStaticDependencies,
+    hasStaticDepenencies,
   } = options;
 
   /**
@@ -247,9 +253,11 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
         }
       }
 
+      recomputations++
+
       // If canUsePreviousResult is true at this point then we've matched scenario A above
 
-      if (!canUsePreviousResult && !isRootSelector && hasStaticDependencies && previousResult.dependencies.length > 0) {
+      if (!canUsePreviousResult && !isRootSelector && hasStaticDepenencies && previousResult.dependencies.length > 0) {
         // We need to check the prior dependencies to see if they've actually changed.
         // @TODO: Need to warn if a root selector has/calls any dependencies
         if (options.verboseLoggingEnabled) {
@@ -356,8 +364,8 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
     } else {
       const newResult = {
         state,
-        recordDependencies: !(hasStaticDependencies && previousResult),
-        dependencies: (hasStaticDependencies && previousResult) ? previousResult.dependencies : [],
+        recordDependencies: !(hasStaticDepenencies && previousResult),
+        dependencies: (hasStaticDepenencies && previousResult) ? previousResult.dependencies : [],
         returnValue: null,
       };
 
@@ -442,6 +450,8 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
 
     return canUsePreviousResult;
   };
+
+  parameterizedSelector.getRecomputations = () => recomputations
 
   parameterizedSelector.isParameterizedSelector = true;
   parameterizedSelector.displayName = options.displayName;
