@@ -39,6 +39,12 @@ const defaultOptions = {
 const parameterizedSelectorCallStack = [];
 
 /**
+ * Here we can track the number of recomputations due to cache misses, state changes, param changes etc
+ * primarily used for performance and unit-testing purposes
+ */
+let recomputations = 0;
+
+/**
  * Each selector needs a unique displayName. We'll pull that from options or the innerFn if possible,
  * but if we have to fall back to raw numbers we'll use this counter to keep them distinct.
  */
@@ -247,6 +253,8 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
         }
       }
 
+      recomputations++
+
       // If canUsePreviousResult is true at this point then we've matched scenario A above
 
       if (!canUsePreviousResult && !isRootSelector && hasStaticDependencies && previousResult.dependencies.length > 0) {
@@ -442,6 +450,8 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
 
     return canUsePreviousResult;
   };
+
+  parameterizedSelector.getRecomputations = () => recomputations
 
   parameterizedSelector.isParameterizedSelector = true;
   parameterizedSelector.displayName = options.displayName;
