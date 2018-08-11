@@ -1,5 +1,3 @@
-// TODO: Add test for React Redux connect function
-
 import chai from 'chai';
 
 import {
@@ -12,18 +10,7 @@ import {
 
 const assert = chai.assert;
 
-// Construct 1E6 states for perf test outside of the perf test so as to not change the execute time of the test function
-const numOfStates = 1000000;
-const states = [];
-
-for (let i = 0; i < numOfStates; i++) {
-  states.push({ a: 1, b: 2 });
-}
-
-describe('basic parameterized selector factory', () => {
-  beforeEach(function () {
-    // runs before each test in this block
-  });
+describe('parameterized selector factory', () => {
   it('should NOT increase # of recomputations when state or parameters changes', () => {
     const selectLetterById = parameterizedSelectorFactory.withOptions({
       createKeyFromParams: KEY_PRESETS.JSON_STRING_WITH_STABLE_KEYS,

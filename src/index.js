@@ -40,7 +40,7 @@ const parameterizedSelectorCallStack = [];
 
 /**
  * Here we can track the number of recomputations due to cache misses, state changes, param changes etc
- * for testing and performance purposes
+ * primarily used for performance and unit-testing purposes
  */
 let recomputations = 0;
 
