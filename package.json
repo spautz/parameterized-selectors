@@ -10,7 +10,7 @@
     "url": "git+https://github.com/spautz/parameterized-selectors.git"
   },
   "scripts": {
-    "test": "echo \"TODO\"",
+    "test": "mocha --require babel-core/register tests/",
     "lint": "eslint ."
   },
   "main": "src/index.js",
@@ -32,8 +32,12 @@
   "devDependencies": {
     "babel-cli": "^6.26.0",
     "babel-eslint": "^8.2.6",
+    "babel-preset-es2015": "^6.24.1",
+    "babel-preset-stage-0": "^6.24.1",
+    "chai": "^4.1.2",
     "eslint": "^5.2.0",
     "eslint-config-airbnb": "^17.0.0",
-    "eslint-plugin-import": "^2.13.0"
+    "eslint-plugin-import": "^2.13.0",
+    "mocha": "^5.2.0"
   }
 }
