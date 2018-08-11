@@ -18,7 +18,7 @@ const defaultOptions = {
   compareIncomingStates: willThrowErrorIfNotSet('compareIncomingStates'),
   compareSelectorResults: willThrowErrorIfNotSet('compareSelectorResults'),
   isRootSelector: willThrowErrorIfNotSet('isRootSelector'),
-  hasStaticDepenencies: false,
+  hasStaticDependencies: false,
 
   // Some options can be changed anytime
   displayName: null,
@@ -159,7 +159,7 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
     compareIncomingStates,
     compareSelectorResults,
     isRootSelector,
-    hasStaticDepenencies,
+    hasStaticDependencies,
   } = options;
 
   /**
@@ -249,7 +249,7 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
 
       // If canUsePreviousResult is true at this point then we've matched scenario A above
 
-      if (!canUsePreviousResult && !isRootSelector && hasStaticDepenencies && previousResult.dependencies.length > 0) {
+      if (!canUsePreviousResult && !isRootSelector && hasStaticDependencies && previousResult.dependencies.length > 0) {
         // We need to check the prior dependencies to see if they've actually changed.
         // @TODO: Need to warn if a root selector has/calls any dependencies
         if (options.verboseLoggingEnabled) {
@@ -356,8 +356,8 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
     } else {
       const newResult = {
         state,
-        recordDependencies: !(hasStaticDepenencies && previousResult),
-        dependencies: (hasStaticDepenencies && previousResult) ? previousResult.dependencies : [],
+        recordDependencies: !(hasStaticDependencies && previousResult),
+        dependencies: (hasStaticDependencies && previousResult) ? previousResult.dependencies : [],
         returnValue: null,
       };
 
