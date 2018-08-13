@@ -1,6 +1,10 @@
 # Motivation for this library
 
-Reselect is a fantastic tool, and we use it extensively for transforming a normalized Redux state into ready-to-use models and lists of models. However, we found ourselves frequently needing to create factories to return parameter-specific selectors based on data that was outside of Redux, like route params:
+This originally grew out of some lessons learned in Reselect by the frontend development team at [Teamworks](https://www.teamworks.com/), combined with past work on other projects and some client-side templating patterns.
+
+## Friction Points
+
+Reselect is a fantastic tool, and we use it extensively for transforming a normalized Redux state into ready-to-use models and lists of models. However, we found ourselves frequently needing to create factories to return parameter-specific selectors to use data that was outside of Redux, like route params:
 
 ```javascript 
 const bookDataByIdRootSelector = state => state.bookDataById;
@@ -51,25 +55,25 @@ const booksForAuthor = selectBooksForAuthor(state, authorId);
 
 But the problem with this is that you still have to create the factory under the hood -- or a factory for the factory, if there are multiple levels of normalized data to hop through.
 
-It would be much easier if we could build everything using the `selectBooksForAuthor` style, instead of having it be syntactic sugar only, but several major issues arise from that:
+It would be cleaner if we could build everything using the `selectBooksForAuthor` style, instead of having it be syntactic sugar only, but several major issues arise from that:
 
 1. It's not memoized, so if you do any work inside the "syntactic sugar" function you've lost many of the benefits of using Reselect selectors.
-2. Trying to memoize it can lead to disaster. We used [`fastMemoize`](https://github.com/caiogondim/fast-memoize.js) in our app, which will `JSON.stringify()` the arguments that the function is called with -- and one of those arguments was *the entire Redux state*. That would have caused tremendous overhead and a huge memory leak, but even by-reference memoization would be defeated by the `state` argument. You'd have to do custom memoization -- at which point you're effectively reimplementing Reselect.
-3. Even after all that, `state` is accessible directly. You have to rely on code reviews and other manual human checks to ensure nobody accesses it in ineffecient or undesirable ways.
+2. Trying to memoize it can lead to disaster. We used [`fastMemoize`](https://github.com/caiogondim/fast-memoize.js) in our app, which will `JSON.stringify()` the arguments that the function is called with -- but note that one of those arguments is *the entire Redux state*. That would have caused tremendous overhead and a huge memory leak, but even by-reference memoization would be defeated by the `state` argument. You'd have to do custom memoization -- at which point you're effectively reimplementing Reselect.
+3. Even after all that, `state` is accessible directly. You have to rely on code reviews and other human checks to ensure nobody accesses it in ineffecient or undesirable ways.
 
 ## Making the syntactic sugar real
 
 This library is a combination of:
 
-* The "you'd have to do custom memoization" from #2. If you memoize separate by params and then by the previous state then you can get the same performance as Reselect.
-* Hiding state within intermediate selectors, while still allowing it to be passed in from `mapStateToProps`.
+* The "you'd have to do custom memoization" from #2, above. If you memoize first by params and then by the previous state then you can get the same performance as Reselect.
+* Hiding state within intermediate selectors, so that they can't access it directly, while still allowing it to be passed in from `mapStateToProps`.
 * Determining dependencies at runtime instead of at selector construction. This requires registering/wrapping the 'root' selectors -- otherwise we wouldn't be able to mark them as dependencies, and we wouldn't be able to provide `state` to only those -- but it then allows us to re-calculate dependencies whenever the selector is run. This was inspired by the dynamic live-binding used in EJS templates by CanJS, in the days when other Javascript MVC libraries required templates to pre-register their observables.
 
 Plus several observations about the way we were using selectors:
 
 #### Post-hoc equivalence checks
 
-When data is stored fully normalized, it's common to a selector that returns an array of objects (e.g., "books for author") when the books and the authorId-to-bookId mappings live under separate Redux keys. In a normal selector any update to any book would cause the "books for author" selector to re-run -- and because that's implemented as a `map`, it'll return a new object every time it runs, which then causes any subsequent selectors for sorting/filtering/etc to also re-run. Then, by default, that will cause any React components that receive the "books for author" list as a prop to re-render -- even though, in many cases, there's no actual difference in the data: it's just a new array object.
+When data is stored fully normalized, it's common to a selector that returns an array of objects (e.g., "books for author") when the books and the authorId-to-bookId mappings live under separate Redux keys. In a normal selector any update to any book would cause the "books for author" selector to re-run -- and because that's implemented as a `map`, it'll return a new object every time it runs, which then causes any subsequent selectors for sorting/filtering/etc to also re-run. Then, by default, that will cause any React components that receive the "books for author" list as a prop to re-render -- even though, in many cases, the data may all be the same and it's merely a new array object.
 
 This library avoids that situation by allowing a selector to cancel out its own 'new' result if it's equivalent to what it had returned previously. E.g., selectors that return an array of objects, a `shallowEqual` check is likely more useful than a referential equality check.
 

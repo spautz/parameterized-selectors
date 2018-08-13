@@ -10,7 +10,9 @@ As with Reselect, functions are only re-run when necessary.
 
 This project is in its infancy, and does not yet have an installable package or distribution.
 
-If you instruct Babel to transform this module, you can import it by specifying the desired commit hash in package.json. A distributed package is currently planned for *after* the API has stabilized and test coverage has been added.
+If you want to use it anyway, you can import it by specifying the desired commit hash in package.json, and then instruct Babel to transform node_modules/parameterized-selectors.
+
+A distributed package is currently planned for *after* the API has stabilized and test coverage has been added.
 
 ## Features
 
@@ -24,7 +26,7 @@ If you instruct Babel to transform this module, you can import it by specifying 
   <dt>Optimize against no-op changes</dt>
   <dd>When optimization hints are provided, a selector that returns a 'new' value which is shallowEqual or otherwise equivalent to what it returned previously can halt the re-run process (if you indicate that it should), so that further selectors don't re-run. This can greatly improve performance for selectors that return arrays, since (for example) `map` will always create a new array instance.</dd>
 
-  <dt>Backwards-compatible with Reselect selectors</dt>
+  <dt>Easily compatible with Reselect selectors</dt>
   <dd>A Reselect selector can be wrapped directly in a parameterized root selector, with no additional steps.</dd>
 </dl>
 
@@ -77,7 +79,7 @@ const selectAllBooksForAuthor = createParameterizedSelector(
   },
 );
 
-// Then, in mapStateToProps -- or whereever state is exposed -- you'd call it as a normal function:
+// Then, in mapStateToProps -- or wherever state is exposed -- you'd call it as a normal function:
 
 const author = selectAuthorById(params.authorId);
 const bookList = selectAllBooksForAuthor(params.authorId);
@@ -155,11 +157,11 @@ Settable at initialization only:
 
 Name | Type | Description
 --- | --- | ---
-createKeyFromParams | Function(params) | Must return a string representation of the params. This will likely be superseded by a custom cache option (with key stringification as a canned preset). 
+createKeyFromParams | Function(params) | Must return a string representation of the params. This will likely be replaced by a custom cache option instead (with key stringification as a canned preset). 
 compareIncomingStates | Function(previousState, newState) | For root selectors only, return true to indicate that the selector should run because the incoming state is equivalent to the previous state.
 compareSelectorResults | Function(previousResult, newResult) | Return true to indicate that the selector result is equivalent to its previous result, and that the previous result should be returned to callers instead.
-isRootSelector | Boolean | Indicates that the selector receives and can touch `state` directly. This has several consequences for behavior which still need to be documented.
-hasStaticDepenencies | Boolean | Indicates that we can skip the work to dynamically re-determine dependencies on each run.
+isRootSelector | Boolean | Indicates that the selector receives and can touch `state` directly. Root selectors will run very often, so they should be small and ideally few in number.
+hasStaticDepenencies | Boolean | Indicates that we can skip the work to dynamically re-record dependencies on each run.
 
 Settable at any time:
 
@@ -173,3 +175,4 @@ performanceChecksEnabled | Boolean | Will give you warnings or pings if somethin
 performanceChecksCallback | Boolean | Gets called for every failed performanceCheck item. (Not yet implemented.)
 warningsEnabled | Boolean | Will notify you about library misuse and invalid/incompatible options. (Barely implemented, mostly to-do.)
 warningsCallback | Function | Gets called for every warning item; this is `console.warn` by default.
+exceptionCallback | Function | Gets called if your selector function throws an exception.

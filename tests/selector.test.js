@@ -1,3 +1,4 @@
+/* eslint-env mocha */
 import chai from 'chai';
 
 import {
@@ -11,7 +12,7 @@ import {
 const assert = chai.assert;
 
 describe('parameterized selector factory', () => {
-  it('should NOT increase # of recomputations when state or parameters changes', () => {
+  it('should NOT increase # of recomputations when state and parameters don\'t change', () => {
     const selectLetterById = parameterizedSelectorFactory.withOptions({
       createKeyFromParams: KEY_PRESETS.JSON_STRING_WITH_STABLE_KEYS,
       compareIncomingStates: COMPARISON_PRESETS.SAME_REFERENCE,
