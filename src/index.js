@@ -401,6 +401,14 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
           totalRecomputationCount += 1;
           newResult.callCount = previousResult.callCount + 1;
           newResult.recomputationCount = previousResult.recomputationCount + 1;
+
+          // While we're here, let's make sure the selector isn't recomputing too often.
+          // @TODO: Is it worth making an option for this 75% value?
+          if (newResult.callCount > 2 && newResult.recomputationCount > 0.75 * newResult.callCount) {
+            options.performanceChecksCallback(`${verboseLoggingPrefix} is recomputing a lot: ${newResult.recomputationCount} of ${newResult.callCount} runs.`);
+          } else if (totalCallCount > 5 && totalRecomputationCount > 0.75 * totalCallCount) {
+            options.performanceChecksCallback(`${options.displayName} is recomputing a lot in total: ${totalRecomputationCount} of ${totalCallCount} runs.`);
+          }
         }
       }
 
