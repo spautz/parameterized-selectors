@@ -3,53 +3,6 @@
 import isEmpty from 'lodash/isEmpty';
 import isPlainObject from 'lodash/isPlainObject';
 
-//
-// Internal setup and bookkeeping
-//
-
-const willThrowErrorIfNotSet = label => () => {
-  throw new Error(`parameterizedSelector: ${label} must be set.`);
-};
-
-const defaultOptions = {
-  // Some options can only be set at initialization
-  displayNamePrefix: 'parameterizedSelector',
-  createKeyFromParams: willThrowErrorIfNotSet('createKeyFromParams'),
-  compareIncomingStates: willThrowErrorIfNotSet('compareIncomingStates'),
-  compareSelectorResults: willThrowErrorIfNotSet('compareSelectorResults'),
-  isRootSelector: willThrowErrorIfNotSet('isRootSelector'),
-  hasStaticDependencies: false,
-
-  // Some options can be changed anytime
-  displayName: null,
-  useConsoleGroup: true,
-  verboseLoggingEnabled: false,
-  verboseLoggingCallback: console.log, /* eslint-disable-line no-console */
-  performanceChecksEnabled: (typeof __DEV__ !== 'undefined' && !!__DEV__),
-  performanceChecksCallback: console.log, /* eslint-disable-line no-console */
-  warningsEnabled: true,
-  warningsCallback: console.warn, /* eslint-disable-line no-console */
-};
-
-/**
- * When a parameterizedSelector is run, we'll add it to this stack so that *other* parameterizedSelectors
- * can register themselves as dependencies for it. This let us know which dependencies to dirty-check
- * the next time it runs.
- */
-const parameterizedSelectorCallStack = [];
-
-/**
- * Here we can track the number of recomputations due to cache misses, state changes, param changes etc
- * primarily used for performance and unit-testing purposes
- */
-let recomputations = 0;
-
-/**
- * Each selector needs a unique displayName. We'll pull that from options or the innerFn if possible,
- * but if we have to fall back to raw numbers we'll use this counter to keep them distinct.
- */
-let unnamedCount = 0;
-
 
 //
 // Presets
@@ -131,6 +84,63 @@ const KEY_PRESETS = {
 
 
 //
+// Internal setup and bookkeeping
+//
+
+const willThrowErrorIfNotSet = label => () => {
+  throw new Error(`parameterizedSelector: ${label} must be set.`);
+};
+
+/**
+ * Defaults for individual options are exported on their own, so that they can be referenced if the caller ever
+ * needs to reference the original value, after setting new defaults.
+ */
+const defaultInitialOptions = {
+  displayNamePrefix: 'parameterizedSelector',
+  compareIncomingStates: COMPARISON_PRESETS.SAME_REFERENCE,
+  compareSelectorResults: COMPARISON_PRESETS.SAME_REFERENCE_OR_EMPTY,
+  exceptionCallback: (errorMessage, error) => {
+    console.error(errorMessage, error);
+    throw error;
+  },
+};
+
+const defaultOptions = {
+  // Some options can only be set at initialization
+  displayNamePrefix: defaultInitialOptions.displayNamePrefix,
+  createKeyFromParams: willThrowErrorIfNotSet('createKeyFromParams'),
+  compareIncomingStates: defaultInitialOptions.compareIncomingStates,
+  compareSelectorResults: defaultInitialOptions.compareSelectorResults,
+  isRootSelector: willThrowErrorIfNotSet('isRootSelector'),
+  hasStaticDependencies: false,
+
+  // Some options can be changed anytime
+  displayName: null,
+  useConsoleGroup: true,
+  verboseLoggingEnabled: false,
+  verboseLoggingCallback: console.log, /* eslint-disable-line no-console */
+  performanceChecksEnabled: (typeof __DEV__ !== 'undefined' && !!__DEV__),
+  performanceChecksCallback: console.log, /* eslint-disable-line no-console */
+  warningsEnabled: true,
+  warningsCallback: console.warn, /* eslint-disable-line no-console */
+  exceptionCallback: defaultInitialOptions.exceptionCallback,
+};
+
+/**
+ * When a parameterizedSelector is run, we'll add it to this stack so that *other* parameterizedSelectors
+ * can register themselves as dependencies for it. This let us know which dependencies to dirty-check
+ * the next time it runs.
+ */
+const parameterizedSelectorCallStack = [];
+
+/**
+ * Each selector needs a unique displayName. We'll pull that from options or the innerFn if possible,
+ * but if we have to fall back to raw numbers we'll use this counter to keep them distinct.
+ */
+let unnamedCount = 0;
+
+
+//
 // Exported functions
 //
 
@@ -176,6 +186,16 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
    */
   const previousResultsByParam = {};
 
+  /**
+   * Here we can track the number of recomputations due to cache misses, state changes, param changes etc,
+   * and the number of times the selector was ever called (regardless of whether it recomputed.)
+   * This is primarily used for performance and unit-testing purposes.
+   *
+   * Note that these counts apply to ALL params. There is a separate set of per-param counters, tracked in
+   * the previousResults.
+   */
+  let totalCallCount = 0;
+  let totalRecomputationCount = 0;
 
   /**
    * This performs some standard argument-massaging and inspects the previous result (if any) to determine
@@ -253,11 +273,9 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
         }
       }
 
-      recomputations++
-
       // If canUsePreviousResult is true at this point then we've matched scenario A above
 
-      if (!canUsePreviousResult && !isRootSelector && hasStaticDependencies && previousResult.dependencies.length > 0) {
+      if (!canUsePreviousResult && !isRootSelector && previousResult.dependencies.length > 0) {
         // We need to check the prior dependencies to see if they've actually changed.
         // @TODO: Need to warn if a root selector has/calls any dependencies
         if (options.verboseLoggingEnabled) {
@@ -360,6 +378,11 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
 
     let returnValue;
     if (canUsePreviousResult) {
+      if (options.performanceChecksEnabled) {
+        totalCallCount += 1;
+        previousResult.callCount += 1;
+      }
+
       ({ returnValue } = previousResult);
     } else {
       const newResult = {
@@ -367,7 +390,27 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
         recordDependencies: !(hasStaticDependencies && previousResult),
         dependencies: (hasStaticDependencies && previousResult) ? previousResult.dependencies : [],
         returnValue: null,
+        // Note that these counts will get overwritten immediately below (if performance checks are on)
+        callCount: 1,
+        recomputationCount: 0,
       };
+
+      if (options.performanceChecksEnabled) {
+        totalCallCount += 1;
+        if (previousResult) {
+          totalRecomputationCount += 1;
+          newResult.callCount = previousResult.callCount + 1;
+          newResult.recomputationCount = previousResult.recomputationCount + 1;
+
+          // While we're here, let's make sure the selector isn't recomputing too often.
+          // @TODO: Is it worth making an option for this 75% value?
+          if (newResult.callCount > 2 && newResult.recomputationCount > 0.75 * newResult.callCount) {
+            options.performanceChecksCallback(`${verboseLoggingPrefix} is recomputing a lot: ${newResult.recomputationCount} of ${newResult.callCount} runs.`);
+          } else if (totalCallCount > 5 && totalRecomputationCount > 0.75 * totalCallCount) {
+            options.performanceChecksCallback(`${options.displayName} is recomputing a lot in total: ${totalRecomputationCount} of ${totalCallCount} runs.`);
+          }
+        }
+      }
 
       // Collect dependencies, if appropriate
       parameterizedSelectorCallStack.push(newResult);
@@ -451,7 +494,21 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
     return canUsePreviousResult;
   };
 
-  parameterizedSelector.getRecomputations = () => recomputations
+  parameterizedSelector.getTotalCallCount = () => totalCallCount;
+  parameterizedSelector.getTotalRecomputations = () => totalRecomputationCount;
+
+  parameterizedSelector.getCallCountForParams = (keyParams) => {
+    const keyParamsString = createKeyFromParams(keyParams);
+    const previousResult = previousResultsByParam[keyParamsString];
+
+    return previousResult ? previousResult.callCount : 0;
+  };
+  parameterizedSelector.getRecomputationsForParams = (keyParams) => {
+    const keyParamsString = createKeyFromParams(keyParams);
+    const previousResult = previousResultsByParam[keyParamsString];
+
+    return previousResult ? previousResult.recomputationCount : 0;
+  };
 
   parameterizedSelector.isParameterizedSelector = true;
   parameterizedSelector.displayName = options.displayName;
@@ -486,6 +543,7 @@ const createParameterizedSelector = parameterizedSelectorFactory.withOptions({
 export {
   KEY_PRESETS,
   COMPARISON_PRESETS,
+  defaultInitialOptions,
   parameterizedSelectorFactory,
   createParameterizedRootSelector,
   createParameterizedSelector,
