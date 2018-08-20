@@ -10,7 +10,7 @@ import parameterizedSelectorFactory from './parameterizedSelectorFactory';
 const createParameterizedRootSelector = parameterizedSelectorFactory.withOptions({
   createKeyFromParams: KEY_PRESETS.JSON_STRING_WITH_STABLE_KEYS,
   compareIncomingStates: COMPARISON_PRESETS.SAME_REFERENCE,
-  compareSelectorResults: COMPARISON_PRESETS.SAME_REFERENCE,
+  compareSelectorResults: COMPARISON_PRESETS.SAME_REFERENCE_OR_EMPTY,
   isRootSelector: true,
 });
 
