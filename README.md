@@ -1,5 +1,9 @@
 # parameterized-selectors
 
+[![Build Status](https://travis-ci.org/spautz/parameterized-selectors.svg?branch=master)](https://travis-ci.org/spautz/parameterized-selectors)
+[![Coverage Status](https://coveralls.io/repos/github/spautz/parameterized-selectors/badge.svg?branch=master)](https://coveralls.io/github/spautz/parameterized-selectors?branch=master)
+[![BCH compliance](https://bettercodehub.com/edge/badge/spautz/parameterized-selectors?branch=master)](https://bettercodehub.com/)
+
 A Reselect-inspired library, where selectors can be passed params and their dependencies are calculated automatically.
 
 Selector functions can be can be called inline from within each other, even conditionally or within loops, without needing to register dependencies up-front. This makes it easier to use external values like route params, or other arguments.
