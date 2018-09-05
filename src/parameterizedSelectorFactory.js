@@ -34,7 +34,6 @@ const pushCallStackEntry = (state, hasStaticDependencies, overrideValues = {}) =
   return callStackEntry;
 };
 
-// const popCallStackEntry = () => parameterizedSelectorCallStack.pop();
 const popCallStackEntry = () => parameterizedSelectorCallStack.pop();
 
 
