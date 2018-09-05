@@ -20,7 +20,7 @@ const defaultInitialOptions = {
   compareIncomingStates: COMPARISON_PRESETS.SAME_REFERENCE,
   compareSelectorResults: COMPARISON_PRESETS.SAME_REFERENCE_OR_EMPTY,
   exceptionCallback: (errorMessage, error) => {
-    console.error(errorMessage, error);
+    console.error(errorMessage, error); // eslint-disable-line no-console
     throw error;
   },
 };

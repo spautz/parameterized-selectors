@@ -174,7 +174,7 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
       && `Parameterized selector "${options.displayName}(${keyParamsString})"`;
 
     if (options.verboseLoggingEnabled && options.useConsoleGroup) {
-      console.groupCollapsed(`Starting ${verboseLoggingPrefix}`, {
+      console.groupCollapsed(`Starting ${verboseLoggingPrefix}`, { // eslint-disable-line no-console
         parentCaller,
         state,
         keyParams,
@@ -323,7 +323,7 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
 
           options.warningsCallback(`${verboseLoggingPrefix} threw an exception: ${newResult.error.message}`, newResult.error);
           if (options.warningsEnabled) {
-            console.trace();
+            console.trace(); // eslint-disable-line no-console
           }
         }
         const callStackEntry = popCallStackEntry();
@@ -387,6 +387,8 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
     // Step 6: All our work is done -- but we may need to add an entry to let the parent/caller parameterizedSelector
     // know that this one was called, regardless of our cached/dirty state.
     if (parentCaller && parentCaller.shouldRecordDependencies) {
+      // @TODO: Split this into separate functions so that they can be ordered in definition order
+      // eslint-disable-next-line no-use-before-define
       parentCaller.dependencies.push([parameterizedSelector, keyParams, newResult.returnValue]);
     }
 
@@ -397,7 +399,7 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
         options.verboseLoggingCallback(`${verboseLoggingPrefix} is done, with a new result: `, newResult);
       }
       if (options.useConsoleGroup) {
-        console.groupEnd();
+        console.groupEnd(); // eslint-disable-line no-console
       }
     }
 
