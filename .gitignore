@@ -1,9 +1,10 @@
 *~
 .DS_Store
 .idea
+.nyc_output
 .vscode
 *.log*
 *.swp
 
-dist
-node_modules
+/dist/
+/node_modules/
