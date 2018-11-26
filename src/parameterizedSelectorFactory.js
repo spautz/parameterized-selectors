@@ -23,8 +23,7 @@ const pushCallStackEntry = (state, hasStaticDependencies, overrideValues = {}) =
   const callStackEntry = {
     state,
     hasStaticDependencies,
-    ownRootDependencies: [],
-    otherRootDependencies: [],
+    rootDependencies: [],
     intermediateDependencies: [],
     canReRun: topOfCallStack ? topOfCallStack.canReRun : true,
     shouldRecordDependencies: true,
@@ -46,8 +45,7 @@ const popCallStackEntry = () => parameterizedSelectorCallStack.pop();
 const createResultRecord = (state, previousResult = {}, overrideValues = {}) => {
   const result = {
     state,
-    ownRootDependencies: previousResult.ownRootDependencies || [],
-    otherRootDependencies: previousResult.otherRootDependencies || [],
+    rootDependencies: previousResult.rootDependencies || [],
     intermediateDependencies: previousResult.intermediateDependencies || [],
     hasReturnValue: false,
     returnValue: null,
@@ -58,6 +56,39 @@ const createResultRecord = (state, previousResult = {}, overrideValues = {}) => 
     ...overrideValues,
   };
   return result;
+};
+
+
+const hasAnyDependencyChanged = (state, dependencyList, options, loggingPrefix, additionalArgs = []) => {
+  const dependencyListLength = dependencyList.length;
+  for (let i = 0; i < dependencyListLength; i += 1) {
+    const [dependencySelector, dependencyKeyParams, dependencyReturnValue] = dependencyList[i];
+
+    // Does our dependency have anything new?
+    const result = dependencySelector.directRunFromParent(state, dependencyKeyParams, ...additionalArgs);
+    // The selector function itself returns some additional metadata alongside the returnValue,
+    // to cover exceptions and edge cases like not being able to run.
+    const {
+      hasReturnValue,
+      returnValue: newReturnValue,
+    } = result;
+
+    if (!hasReturnValue) {
+      if (options.verboseLoggingEnabled) {
+        const dependencyKeyParamString = dependencySelector.createKeyFromParams(dependencyKeyParams);
+        options.verboseLoggingCallback(`${loggingPrefix} is dirty: "${dependencySelector.displayName}(${dependencyKeyParamString})" could not run.`);
+      }
+      return true;
+    }
+    if (newReturnValue !== dependencyReturnValue) {
+      if (options.verboseLoggingEnabled) {
+        const dependencyKeyParamString = dependencySelector.createKeyFromParams(dependencyKeyParams);
+        options.verboseLoggingCallback(`${loggingPrefix} is dirty: "${dependencySelector.displayName}(${dependencyKeyParamString})" returned a new value.`);
+      }
+      return true;
+    }
+  }
+  return false;
 };
 
 
@@ -113,11 +144,7 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
    *
    *  where each resultRecord looks like: {
    *    state,
-   *    ownRootDependencies: [
-   *      [parameterizedSelector, keyParams, returnValue],
-   *      ...
-   *    ],
-   *    otherRootDependencies: [
+   *    rootDependencies: [
    *      [parameterizedSelector, keyParams, returnValue],
    *      ...
    *    ],
@@ -228,8 +255,7 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
     if (previousResult && previousResult.hasReturnValue) {
       const {
         state: previousState,
-        ownRootDependencies: previousOwnRootDependencies,
-        otherRootDependencies: previousAllRootDependencies,
+        rootDependencies: previousRootDependencies,
         intermediateDependencies: previousIntermediateDependencies,
         // Note that callCount and recomputationCount are only referenced if they're actually in use.
       } = previousResult;
@@ -246,13 +272,11 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
           options.verboseLoggingCallback(`${loggingPrefix} is cached: state hasn't changed`);
         }
       } else if (!isRootSelector && (
-        previousOwnRootDependencies.length > 0
-        || previousAllRootDependencies.length > 0
+        previousRootDependencies.length > 0
         || previousIntermediateDependencies.length > 0
       )) {
         // Step 3: Have any of our dependencies changed?
         // @TODO: Need to warn if a root selector ever has dependencies
-        let anyDependencyHasChanged = false; // until proven guilty
 
         if (options.verboseLoggingEnabled) {
           options.verboseLoggingCallback(`${loggingPrefix} is checking its dependencies for changes...`);
@@ -264,34 +288,14 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
           shouldRecordDependencies: false,
         });
 
-        // @FIXME: REFACTOR START POINT
+        // We'll check the root dependencies first: if one of them has changed, we'll check out intermediates.
+        // If one of those has also changed, then we need to rerun.
+        const hasChanges = hasAnyDependencyChanged(state, previousRootDependencies, options, loggingPrefix, additionalArgs)
+          && hasAnyDependencyChanged(state, previousIntermediateDependencies, options, loggingPrefix, additionalArgs);
 
-        const previousDependenciesLength = previousDependencies.length;
-        for (let i = 0; i < previousDependenciesLength; i += 1) {
-          const [dependencySelector, dependencyKeyParams, dependencyReturnValue] = previousDependencies[i];
-
-          // Does our dependency have anything new?
-          const result = dependencySelector.directRunFromParent(state, dependencyKeyParams, ...additionalArgs);
-          // The selector function itself returns some additional metadata alongside the returnValue,
-          // to cover exceptions and edge cases like not being allowed to rerun when needed.
-          const {
-            hasReturnValue,
-            returnValue: newReturnValue,
-          } = result;
-
-          if (hasReturnValue && newReturnValue !== dependencyReturnValue) {
-            anyDependencyHasChanged = true;
-            if (options.verboseLoggingEnabled) {
-              const dependencyKeyParamString = dependencySelector.createKeyFromParams(dependencyKeyParams);
-              options.verboseLoggingCallback(`${loggingPrefix} is dirty: "${dependencySelector.displayName}(${dependencyKeyParamString})" returned a new value.`);
-            }
-            break;
-          }
-        }
         popCallStackEntry();
 
-        if (!anyDependencyHasChanged) {
-          // @FIXME: REFACTOR END POINT
+        if (!hasChanges) {
           canUsePreviousResult = true;
           if (options.verboseLoggingEnabled) {
             options.verboseLoggingCallback(`${loggingPrefix} is cached: no dependencies have changed`);
@@ -370,13 +374,11 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
         }
 
         if (!newResult.error && (
-          callStackEntry.ownRootDependencies.length
-          || callStackEntry.otherRootDependencies.length
+          callStackEntry.rootDependencies.length
           || callStackEntry.intermediateDependencies.length
         )) {
           // Carry over the bookkeeping records of whatever sub-selectors were run within innerFn.
-          newResult.ownRootDependencies = callStackEntry.ownRootDependencies;
-          newResult.otherRootDependencies = callStackEntry.otherRootDependencies;
+          newResult.rootDependencies = callStackEntry.rootDependencies;
           newResult.intermediateDependencies = callStackEntry.intermediateDependencies;
 
           if (options.warningsEnabled && isRootSelector) {
@@ -419,11 +421,9 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
       const thisResultRecord = [parameterizedSelector, keyParams, newResult.returnValue];
 
       if (isRootSelector) {
-        parentCaller.ownRootDependencies.push(thisResultRecord);
-
         const callStackLength = parameterizedSelectorCallStack.length;
-        for (let i = callStackLength - 2; i > 0; i -= 1) {
-          parameterizedSelectorCallStack[i].otherRootDependencies.push(thisResultRecord);
+        for (let i = 0; i < callStackLength; i += 1) {
+          parameterizedSelectorCallStack[i].rootDependencies.push(thisResultRecord);
         }
       } else {
         parentCaller.intermediateDependencies.push(thisResultRecord);
@@ -506,15 +506,13 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
 
     if (topOfCallStack) {
       pushCallStackEntry(argsWithState[0], hasStaticDependencies, {
-        ownRootDependencies: topOfCallStack.ownRootDependencies,
-        otherRootDependencies: topOfCallStack.otherRootDependencies,
+        rootDependencies: topOfCallStack.rootDependencies,
         intermediateDependencies: topOfCallStack.intermediateDependencies,
         canReRun: false,
       });
     } else {
       pushCallStackEntry(argsWithState[0], hasStaticDependencies, {
-        ownRootDependencies: [],
-        otherRootDependencies: [],
+        rootDependencies: [],
         intermediateDependencies: [],
         canReRun: false,
       });
