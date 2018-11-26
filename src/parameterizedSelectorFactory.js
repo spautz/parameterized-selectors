@@ -24,7 +24,7 @@ const pushCallStackEntry = (state, hasStaticDependencies, overrideValues = {}) =
     state,
     hasStaticDependencies,
     rootDependencies: [],
-    intermediateDependencies: [],
+    ownDependencies: [],
     canReRun: topOfCallStack ? topOfCallStack.canReRun : true,
     shouldRecordDependencies: true,
     ...overrideValues,
@@ -46,7 +46,7 @@ const createResultRecord = (state, previousResult = {}, overrideValues = {}) => 
   const result = {
     state,
     rootDependencies: previousResult.rootDependencies || [],
-    intermediateDependencies: previousResult.intermediateDependencies || [],
+    ownDependencies: previousResult.ownDependencies || [],
     hasReturnValue: false,
     returnValue: null,
     error: null,
@@ -151,7 +151,7 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
    *      [parameterizedSelector, keyParams, returnValue],
    *      ...
    *    ],
-   *    intermediateDependencies: [
+   *    ownDependencies: [
    *      [parameterizedSelector, keyParams, returnValue],
    *      ...
    *    ],
@@ -275,7 +275,7 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
       const {
         state: previousState,
         rootDependencies: previousRootDependencies,
-        intermediateDependencies: previousIntermediateDependencies,
+        ownDependencies: previousOwnDependencies,
         // Note that invokeCount, skippedRunCount, phantomRunCount, fullRunCount, and abortedRunCount
         // are only referenced if they're actually in use.
       } = previousResult;
@@ -293,7 +293,7 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
         }
       } else if (!isRootSelector && (
         previousRootDependencies.length > 0
-        || previousIntermediateDependencies.length > 0
+        || previousOwnDependencies.length > 0
       )) {
         // Step 3: Have any of our dependencies changed?
         // @TODO: Need to warn if a root selector ever has dependencies
@@ -311,7 +311,7 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
         // We'll check the root dependencies first: if one of them has changed, we'll check out intermediates.
         // If one of those has also changed, then we need to rerun.
         const hasChanges = hasAnyDependencyChanged(state, previousRootDependencies, options, loggingPrefix, additionalArgs)
-          && hasAnyDependencyChanged(state, previousIntermediateDependencies, options, loggingPrefix, additionalArgs);
+          && hasAnyDependencyChanged(state, previousOwnDependencies, options, loggingPrefix, additionalArgs);
 
         popCallStackEntry();
 
@@ -416,11 +416,11 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
 
         if (!newResult.error && (
           callStackEntry.rootDependencies.length
-          || callStackEntry.intermediateDependencies.length
+          || callStackEntry.ownDependencies.length
         )) {
           // Carry over the bookkeeping records of whatever sub-selectors were run within innerFn.
           newResult.rootDependencies = callStackEntry.rootDependencies;
-          newResult.intermediateDependencies = callStackEntry.intermediateDependencies;
+          newResult.ownDependencies = callStackEntry.ownDependencies;
 
           if (options.warningsEnabled && isRootSelector) {
             options.warningsCallback(`${loggingPrefix} is supposed to be a root selector, but it recorded dependencies`, {
@@ -461,14 +461,14 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
       // @TODO: Split this into separate functions so that they can be ordered in definition order
       // eslint-disable-next-line no-use-before-define
       const thisResultRecord = [parameterizedSelector, keyParams, newResult.returnValue];
+      // Regardless of whether or not it's a root dependency, we need to track it as *our own* immediate dependency
+      parentCaller.ownDependencies.push(thisResultRecord);
 
       if (isRootSelector) {
         const callStackLength = parameterizedSelectorCallStack.length;
         for (let i = 0; i < callStackLength; i += 1) {
           parameterizedSelectorCallStack[i].rootDependencies.push(thisResultRecord);
         }
-      } else {
-        parentCaller.intermediateDependencies.push(thisResultRecord);
       }
     }
 
@@ -549,13 +549,13 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
     if (topOfCallStack) {
       pushCallStackEntry(argsWithState[0], hasStaticDependencies, {
         rootDependencies: topOfCallStack.rootDependencies,
-        intermediateDependencies: topOfCallStack.intermediateDependencies,
+        ownDependencies: topOfCallStack.ownDependencies,
         canReRun: false,
       });
     } else {
       pushCallStackEntry(argsWithState[0], hasStaticDependencies, {
         rootDependencies: [],
-        intermediateDependencies: [],
+        ownDependencies: [],
         canReRun: false,
       });
     }
