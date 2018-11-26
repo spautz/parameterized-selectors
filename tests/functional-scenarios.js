@@ -96,6 +96,7 @@ describe('Selectors for single objects', () => {
         displayName: 'selectBook',
         compareSelectorResults: COMPARISON_PRESETS.SHALLOW_EQUAL,
         performanceChecksEnabled: true,
+        verboseLoggingEnabled: true,
       },
     );
 
@@ -123,12 +124,47 @@ describe('Selectors for single objects', () => {
     assert.equal(firstAuthor, selectAuthor(initialState, { authorId: 1 }));
     assert.equal(secondAuthor.authorId, 2);
     assert.equal(secondAuthor, selectAuthor(initialState, { authorId: 2 }));
-
-    assert.equal(selectAuthor.getCallCountForParams({ authorId: 1 }), 2);
-    assert.equal(selectAuthor.getRecomputationsForParams({ authorId: 1 }), 0);
-    assert.equal(selectAuthor.getCallCountForParams({ authorId: 2 }), 2);
-    assert.equal(selectAuthor.getRecomputationsForParams({ authorId: 2 }), 0);
   });
+
+  it('should track invoke and full-run counts properly', () => {
+    selectAuthor(initialState, { authorId: 1 });
+    selectAuthor(initialState, { authorId: 1 });
+    selectAuthor(initialState, { authorId: 2 });
+    selectAuthor(initialState, { authorId: 1 });
+    selectAuthor(initialState, { authorId: 2 });
+    selectAuthor(initialState, { authorId: 3 });
+
+    assert.equal(selectAuthor.getInvokeCountForParams({ authorId: 1 }), 3);
+    assert.equal(selectAuthor.getFullRunCountForParams({ authorId: 1 }), 1);
+    assert.equal(selectAuthor.getPhantomRunCountForParams({ authorId: 1 }), 0);
+    assert.equal(selectAuthor.getSkippedRunCountForParams({ authorId: 1 }), 2);
+    assert.equal(selectAuthor.getAbortedRunCountForParams({ authorId: 1 }), 0);
+
+    assert.equal(selectAuthor.getInvokeCountForParams({ authorId: 2 }), 2);
+    assert.equal(selectAuthor.getFullRunCountForParams({ authorId: 2 }), 1);
+    assert.equal(selectAuthor.getPhantomRunCountForParams({ authorId: 2 }), 0);
+    assert.equal(selectAuthor.getSkippedRunCountForParams({ authorId: 2 }), 1);
+    assert.equal(selectAuthor.getAbortedRunCountForParams({ authorId: 2 }), 0);
+
+    assert.equal(selectAuthor.getInvokeCountForParams({ authorId: 3 }), 1);
+    assert.equal(selectAuthor.getFullRunCountForParams({ authorId: 3 }), 1);
+    assert.equal(selectAuthor.getPhantomRunCountForParams({ authorId: 3 }), 0);
+    assert.equal(selectAuthor.getSkippedRunCountForParams({ authorId: 3 }), 0);
+    assert.equal(selectAuthor.getAbortedRunCountForParams({ authorId: 3 }), 0);
+
+    assert.equal(selectAuthor.getInvokeCountForParams({ authorId: 4 }), 0);
+    assert.equal(selectAuthor.getFullRunCountForParams({ authorId: 4 }), 0);
+    assert.equal(selectAuthor.getPhantomRunCountForParams({ authorId: 4 }), 0);
+    assert.equal(selectAuthor.getSkippedRunCountForParams({ authorId: 4 }), 0);
+    assert.equal(selectAuthor.getAbortedRunCountForParams({ authorId: 4 }), 0);
+
+    assert.equal(selectAuthor.getGlobalInvokeCount(), 6);
+    assert.equal(selectAuthor.getGlobalFullRunCount(), 3);
+    assert.equal(selectAuthor.getGlobalPhantomRunCount(), 0);
+    assert.equal(selectAuthor.getGlobalSkippedRunCount(), 3);
+    assert.equal(selectAuthor.getGlobalAbortedRunCount(), 0);
+  });
+
   it('should return book models', () => {
     const firstBook = selectBook(initialState, { bookId: 101 });
     const secondBook = selectBook(initialState, { bookId: 102 });
@@ -148,10 +184,12 @@ describe('Selectors for single objects', () => {
   it('should not rerun the root selector when nothing has changed', () => {
     const author1 = selectAuthor(initialState, { authorId: 1 });
 
-    assert.equal(selectAuthor.getCallCountForParams({ authorId: 1 }), 1);
-    assert.equal(selectAuthor.getRecomputationsForParams({ authorId: 1 }), 0);
-    assert.equal(selectRawAuthorData.getCallCountForParams(1), 1);
-    assert.equal(selectRawAuthorData.getRecomputationsForParams(1), 0);
+    assert.equal(selectAuthor.getInvokeCountForParams({ authorId: 1 }), 1);
+    assert.equal(selectAuthor.getFullRunCountForParams({ authorId: 1 }), 1);
+    assert.equal(selectAuthor.getSkippedRunCountForParams({ authorId: 1 }), 0);
+    assert.equal(selectRawAuthorData.getInvokeCountForParams(1), 1);
+    assert.equal(selectRawAuthorData.getFullRunCountForParams(1), 1);
+    assert.equal(selectRawAuthorData.getSkippedRunCountForParams(1), 0);
 
     selectAuthor(initialState, { authorId: 1 });
     selectAuthor(initialState, { authorId: 1 });
@@ -159,10 +197,12 @@ describe('Selectors for single objects', () => {
 
     // selectAuthor got called 3 new times, but with no change.
     // Nothing else got run.
-    assert.equal(selectAuthor.getCallCountForParams({ authorId: 1 }), 4);
-    assert.equal(selectAuthor.getRecomputationsForParams({ authorId: 1 }), 0);
-    assert.equal(selectRawAuthorData.getCallCountForParams(1), 1);
-    assert.equal(selectRawAuthorData.getRecomputationsForParams(1), 0);
+    assert.equal(selectAuthor.getInvokeCountForParams({ authorId: 1 }), 4);
+    assert.equal(selectAuthor.getFullRunCountForParams({ authorId: 1 }), 1);
+    assert.equal(selectAuthor.getSkippedRunCountForParams({ authorId: 1 }), 3);
+    assert.equal(selectRawAuthorData.getInvokeCountForParams(1), 1);
+    assert.equal(selectRawAuthorData.getFullRunCountForParams(1), 1);
+    assert.equal(selectRawAuthorData.getSkippedRunCountForParams(1), 0);
 
     assert.equal(author1, author2);
   });
@@ -179,14 +219,20 @@ describe('Selectors for single objects', () => {
         },
       },
     };
+
+    selectAuthor(state2, { authorId: 1 });
     const author2 = selectAuthor(state2, { authorId: 1 });
 
-    // selectAuthor got called once, but didn't recompute, while the root selector was re-run fully.
-    assert.equal(selectAuthor.getCallCountForParams({ authorId: 1 }), 2);
-    assert.equal(selectAuthor.getRecomputationsForParams({ authorId: 1 }), 0);
-    assert.equal(selectRawAuthorData.getCallCountForParams(1), 2);
-    assert.equal(selectRawAuthorData.getRecomputationsForParams(1), 1);
     assert.equal(author1, author2);
+
+    // selectAuthor got called once, but didn't recompute, while the root selector was run but skipped.
+    assert.equal(selectAuthor.getInvokeCountForParams({ authorId: 1 }), 3);
+    assert.equal(selectAuthor.getFullRunCountForParams({ authorId: 1 }), 1);
+    assert.equal(selectAuthor.getSkippedRunCountForParams({ authorId: 1 }), 2);
+    assert.equal(selectRawAuthorData.getInvokeCountForParams(1), 3);
+    assert.equal(selectRawAuthorData.getFullRunCountForParams(1), 1);
+    assert.equal(selectRawAuthorData.getPhantomRunCountForParams(1), 1);
+    assert.equal(selectRawAuthorData.getSkippedRunCountForParams(1), 1);
   });
 
   it('should return the author for a book', () => {
@@ -211,33 +257,38 @@ describe('Selectors for single objects', () => {
   it('should not re-run intermediate selectors when nothing has changed', () => {
     const author1 = selectAuthorForBook(initialState, { bookId: 101 });
 
-    assert.equal(selectAuthorForBook.getCallCountForParams({ bookId: 101 }), 1);
-    assert.equal(selectAuthorForBook.getRecomputationsForParams({ bookId: 101 }), 0);
-    assert.equal(selectBook.getCallCountForParams({ bookId: 101 }), 1);
-    assert.equal(selectBook.getRecomputationsForParams({ bookId: 101 }), 0);
-    assert.equal(selectRawBookData.getCallCountForParams(101), 1);
-    assert.equal(selectRawBookData.getRecomputationsForParams(101), 0);
-    assert.equal(selectAuthor.getCallCountForParams({ authorId: 1 }), 1);
-    assert.equal(selectAuthor.getRecomputationsForParams({ authorId: 1 }), 0);
-    assert.equal(selectRawAuthorData.getCallCountForParams(1), 1);
-    assert.equal(selectRawAuthorData.getRecomputationsForParams(1), 0);
+    assert.equal(selectAuthorForBook.getInvokeCountForParams({ bookId: 101 }), 1);
+    assert.equal(selectAuthorForBook.getFullRunCountForParams({ bookId: 101 }), 1);
+
+    assert.equal(selectBook.getInvokeCountForParams({ bookId: 101 }), 1);
+    assert.equal(selectBook.getFullRunCountForParams({ bookId: 101 }), 1);
+    assert.equal(selectAuthor.getInvokeCountForParams({ authorId: 1 }), 1);
+    assert.equal(selectAuthor.getFullRunCountForParams({ authorId: 1 }), 1);
+
+    assert.equal(selectRawBookData.getInvokeCountForParams(101), 1);
+    assert.equal(selectRawBookData.getFullRunCountForParams(101), 1);
+    assert.equal(selectRawAuthorData.getInvokeCountForParams(1), 1);
+    assert.equal(selectRawAuthorData.getFullRunCountForParams(1), 1);
 
     selectAuthorForBook(initialState, { bookId: 101 });
     selectAuthorForBook(initialState, { bookId: 101 });
     const author2 = selectAuthorForBook(initialState, { bookId: 101 });
 
-    // selectAuthor got called 3 new times, but with no change.
+    // selectAuthorForBook got called 3 new times, but with no change.
     // Nothing else got run.
-    assert.equal(selectAuthorForBook.getCallCountForParams({ bookId: 101 }), 4);
-    assert.equal(selectAuthorForBook.getRecomputationsForParams({ bookId: 101 }), 0);
-    assert.equal(selectBook.getCallCountForParams({ bookId: 101 }), 1);
-    assert.equal(selectBook.getRecomputationsForParams({ bookId: 101 }), 0);
-    assert.equal(selectRawBookData.getCallCountForParams(101), 1);
-    assert.equal(selectRawBookData.getRecomputationsForParams(101), 0);
-    assert.equal(selectAuthor.getCallCountForParams({ authorId: 1 }), 1);
-    assert.equal(selectAuthor.getRecomputationsForParams({ authorId: 1 }), 0);
-    assert.equal(selectRawAuthorData.getCallCountForParams(1), 1);
-    assert.equal(selectRawAuthorData.getRecomputationsForParams(1), 0);
+    assert.equal(selectAuthorForBook.getInvokeCountForParams({ bookId: 101 }), 4);
+    assert.equal(selectAuthorForBook.getFullRunCountForParams({ bookId: 101 }), 1);
+    assert.equal(selectAuthorForBook.getSkippedRunCountForParams({ bookId: 101 }), 3);
+
+    assert.equal(selectBook.getInvokeCountForParams({ bookId: 101 }), 1);
+    assert.equal(selectBook.getFullRunCountForParams({ bookId: 101 }), 1);
+    assert.equal(selectAuthor.getInvokeCountForParams({ authorId: 1 }), 1);
+    assert.equal(selectAuthor.getFullRunCountForParams({ authorId: 1 }), 1);
+
+    assert.equal(selectRawBookData.getInvokeCountForParams(101), 1);
+    assert.equal(selectRawBookData.getFullRunCountForParams(101), 1);
+    assert.equal(selectRawAuthorData.getInvokeCountForParams(1), 1);
+    assert.equal(selectRawAuthorData.getFullRunCountForParams(1), 1);
 
     assert.equal(author1, author2);
   });
@@ -256,18 +307,24 @@ describe('Selectors for single objects', () => {
     };
     const author2 = selectAuthorForBook(state2, { bookId: 101 });
 
-    // selectAuthor got called once, but didn't recompute, while the book root selector was re-run fully.
-    assert.equal(selectAuthorForBook.getCallCountForParams({ bookId: 101 }), 2);
-    assert.equal(selectAuthorForBook.getRecomputationsForParams({ bookId: 101 }), 0);
-    assert.equal(selectBook.getCallCountForParams({ bookId: 101 }), 2);
-    assert.equal(selectBook.getRecomputationsForParams({ bookId: 101 }), 0);
-    assert.equal(selectRawBookData.getCallCountForParams(101), 2);
-    assert.equal(selectRawBookData.getRecomputationsForParams(101), 1);
-    assert.equal(selectAuthor.getCallCountForParams({ authorId: 1 }), 2);
-    assert.equal(selectAuthor.getRecomputationsForParams({ authorId: 1 }), 0);
-    assert.equal(selectRawAuthorData.getCallCountForParams(1), 2);
-    assert.equal(selectRawAuthorData.getRecomputationsForParams(1), 1);
     assert.equal(author1, author2);
+
+    // selectAuthorForBook got called twice, but didn't recompute, while the root selector were run twice each.
+    assert.equal(selectAuthorForBook.getInvokeCountForParams({ bookId: 101 }), 2);
+    assert.equal(selectAuthorForBook.getFullRunCountForParams({ bookId: 101 }), 1);
+    assert.equal(selectAuthorForBook.getSkippedRunCountForParams({ bookId: 101 }), 1);
+
+    assert.equal(selectBook.getInvokeCountForParams({ bookId: 101 }), 1);
+    assert.equal(selectBook.getFullRunCountForParams({ bookId: 101 }), 1);
+    assert.equal(selectAuthor.getInvokeCountForParams({ authorId: 1 }), 1);
+    assert.equal(selectAuthor.getFullRunCountForParams({ authorId: 1 }), 1);
+
+    assert.equal(selectRawBookData.getInvokeCountForParams(101), 2);
+    assert.equal(selectRawBookData.getFullRunCountForParams(101), 1);
+    assert.equal(selectRawBookData.getPhantomRunCountForParams(101), 1);
+    assert.equal(selectRawAuthorData.getInvokeCountForParams(1), 2);
+    assert.equal(selectRawAuthorData.getFullRunCountForParams(1), 1);
+    assert.equal(selectRawAuthorData.getPhantomRunCountForParams(1), 1);
 
     const state3 = {
       ...state2,
@@ -281,17 +338,28 @@ describe('Selectors for single objects', () => {
     };
     const author3 = selectAuthorForBook(state3, { bookId: 101 });
 
-    // All the ones that touch book data re-run, but the resulting author is unchanged
-    assert.equal(selectAuthorForBook.getCallCountForParams({ bookId: 101 }), 3);
-    assert.equal(selectAuthorForBook.getRecomputationsForParams({ bookId: 101 }), 1);
-    assert.equal(selectBook.getCallCountForParams({ bookId: 101 }), 4); // this is touched twice
-    assert.equal(selectBook.getRecomputationsForParams({ bookId: 101 }), 1);
-    assert.equal(selectRawBookData.getCallCountForParams(101), 4);
-    assert.equal(selectRawBookData.getRecomputationsForParams(101), 2);
-    assert.equal(selectAuthor.getCallCountForParams({ authorId: 1 }), 3);
-    assert.equal(selectAuthor.getRecomputationsForParams({ authorId: 1 }), 0);
-    assert.equal(selectRawAuthorData.getCallCountForParams(1), 3);
-    assert.equal(selectRawAuthorData.getRecomputationsForParams(1), 2);
     assert.equal(author1, author3);
+
+    // The root selectors and the ones that return book data re-run, but the author ones don't
+    console.log('selectAuthorForBook: ', selectAuthorForBook.getAllCountsForParams({ bookId: 101 }))
+    assert.equal(selectAuthorForBook.getInvokeCountForParams({ bookId: 101 }), 3);
+    assert.equal(selectAuthorForBook.getFullRunCountForParams({ bookId: 101 }), 1);
+    assert.equal(selectAuthorForBook.getSkippedRunCountForParams({ bookId: 101 }), 2);
+
+    console.log('selectBook: ', selectBook.getAllCountsForParams({ bookId: 101 }))
+    assert.equal(selectBook.getInvokeCountForParams({ bookId: 101 }), 2);
+    assert.equal(selectBook.getFullRunCountForParams({ bookId: 101 }), 2);
+    console.log('selectAuthor: ', selectAuthor.getAllCountsForParams({ authorId: 1 }))
+    assert.equal(selectAuthor.getInvokeCountForParams({ authorId: 1 }), 1);
+    assert.equal(selectAuthor.getFullRunCountForParams({ authorId: 1 }), 1);
+
+    console.log('selectRawBookData: ', selectRawBookData.getAllCountsForParams(101))
+
+    assert.equal(selectRawBookData.getInvokeCountForParams(101), 3);
+    assert.equal(selectRawBookData.getFullRunCountForParams(101), 2);
+    assert.equal(selectRawBookData.getPhantomRunCountForParams(101), 1);
+    assert.equal(selectRawAuthorData.getInvokeCountForParams(1), 3);
+    assert.equal(selectRawAuthorData.getFullRunCountForParams(1), 1);
+    assert.equal(selectRawAuthorData.getPhantomRunCountForParams(1), 2);
   });
 });

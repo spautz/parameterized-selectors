@@ -180,3 +180,8 @@ performanceChecksCallback | Boolean | Gets called for every failed performanceCh
 warningsEnabled | Boolean | Will notify you about library misuse and invalid/incompatible options. (Barely implemented, mostly to-do.)
 warningsCallback | Function | Gets called for every warning item; this is `console.warn` by default.
 exceptionCallback | Function | Gets called if your selector function throws an exception.
+onInvoke | Function | Callback fired whenever the selector is executed. Useful for debugging.
+onSkippedRun | Function | Callback fired when a selector returns its cached value directly. Useful for debugging.
+onPhantomRun | Function | Callback fired when a selector runs but returns something equivalent to its cached value. Useful for debugging.
+onFullRun | Function | Callback fired when a selector runs and returns a new value. Useful for debugging.
+onAbortedRun | Function | Callback fired when a selector needs to run but isn't allowed to because it's being queried (e.g., for `hasCachedResult`.) Useful for debugging.

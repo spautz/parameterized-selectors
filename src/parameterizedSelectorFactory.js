@@ -51,8 +51,11 @@ const createResultRecord = (state, previousResult = {}, overrideValues = {}) => 
     returnValue: null,
     error: null,
     // Note that these counts must be incremented separately (if performance checks are on)
-    callCount: previousResult.callCount || 1,
-    recomputationCount: previousResult.recomputationCount || 0,
+    invokeCount: previousResult.invokeCount || 1,
+    skippedRunCount: previousResult.skippedRunCount || 0,
+    phantomRunCount: previousResult.phantomRunCount || 0,
+    fullRunCount: previousResult.fullRunCount || 0,
+    abortedRunCount: previousResult.abortedRunCount || 0,
     ...overrideValues,
   };
   return result;
@@ -96,7 +99,7 @@ const hasAnyDependencyChanged = (state, dependencyList, options, loggingPrefix, 
  * Each selector needs a unique displayName. We'll pull that from options or the innerFn if possible,
  * but if we have to fall back to raw numbers we'll use this counter to keep them distinct.
  */
-let unnamedCount = 0;
+let numUnnamedSelectors = 0;
 
 
 /**
@@ -119,8 +122,8 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
     if (functionDisplayName) {
       options.displayName = `${options.displayNamePrefix}(${functionDisplayName})`;
     } else {
-      unnamedCount += 1;
-      options.displayName = `${options.displayNamePrefix}(#${unnamedCount})`;
+      numUnnamedSelectors += 1;
+      options.displayName = `${options.displayNamePrefix}(#${numUnnamedSelectors})`;
     }
   }
   if (options.verboseLoggingEnabled) {
@@ -155,8 +158,11 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
    *    hasReturnValue,
    *    returnValue,
    *    error,
-   *    callCount,
-   *    recomputationCount,
+   *    invokeCount,
+   *    skippedRunCount,
+   *    phantomRunCount,
+   *    fullRunCount,
+   *    abortedRunCount,
    *  }
    */
   const previousResultsByParam = {};
@@ -169,8 +175,11 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
    * Note that these counts apply across ALL params for the selector. There is a separate set of per-param
    * counters, tracked in the previousResults.
    */
-  let totalCallCount = 0;
-  let totalRecomputationCount = 0;
+  let globalInvokeCount = 0;
+  let globalSkippedRunCount = 0;
+  let globalPhantomRunCount = 0;
+  let globalFullRunCount = 0;
+  let globalAbortedRunCount = 0;
 
 
   /**
@@ -249,6 +258,16 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
       }
     }
 
+    if (options.performanceChecksEnabled) {
+      globalInvokeCount += 1;
+      if (previousResult) {
+        previousResult.invokeCount += 1;
+      }
+    }
+    if (typeof options.onInvoke === 'function') {
+      options.onInvoke(/* @TODO: What should go here? */);
+    }
+
     // Step 1: Do we have a prior result for this parameterizedSelector + its keyParams?
     let canUsePreviousResult = false; // until proven otherwise
 
@@ -257,7 +276,8 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
         state: previousState,
         rootDependencies: previousRootDependencies,
         intermediateDependencies: previousIntermediateDependencies,
-        // Note that callCount and recomputationCount are only referenced if they're actually in use.
+        // Note that invokeCount, skippedRunCount, phantomRunCount, fullRunCount, and abortedRunCount
+        // are only referenced if they're actually in use.
       } = previousResult;
 
       // Step 2: Have we already run with these params for this state?
@@ -312,8 +332,11 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
       newResult = previousResult;
 
       if (options.performanceChecksEnabled) {
-        totalCallCount += 1;
-        newResult.callCount += 1;
+        globalSkippedRunCount += 1;
+        newResult.skippedRunCount += 1;
+      }
+      if (typeof options.onSkippedRun === 'function') {
+        options.onSkippedRun(/* @TODO: What should go here? */);
       }
     } else {
       // Step 4: Run and obtain a new result, if we can.
@@ -357,19 +380,37 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
         if (previousResult && previousResult.hasReturnValue && newResult.hasReturnValue
           && compareSelectorResults(previousResult.returnValue, newResult.returnValue)
         ) {
-          // We got back the same result: return what we had before
+          // We got back the same result: return what we had before (but update its state so we don't need
+          // to check it again)
           newResult = previousResult;
+          newResult.state = state;
           if (options.verboseLoggingEnabled) {
             options.verboseLoggingCallback(`${loggingPrefix} didn't need to re-run: the result is the same`, {
               previousResult,
               newResult,
             });
           }
+
+          if (options.performanceChecksEnabled) {
+            globalPhantomRunCount += 1;
+            newResult.phantomRunCount += 1;
+          }
+          if (typeof options.onPhantomRun === 'function') {
+            options.onPhantomRun(/* @TODO: What should go here? */);
+          }
         } else {
           // It really IS new!
           previousResultsByParam[keyParamsString] = newResult;
           if (options.verboseLoggingEnabled) {
             options.verboseLoggingCallback(`${loggingPrefix} has a new return value: `, newResult.returnValue);
+          }
+
+          if (options.performanceChecksEnabled) {
+            globalFullRunCount += 1;
+            newResult.fullRunCount += 1;
+          }
+          if (typeof options.onFullRun === 'function') {
+            options.onFullRun(/* @TODO: What should go here? */);
           }
         }
 
@@ -391,25 +432,26 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
         }
 
         if (options.performanceChecksEnabled) {
-          totalCallCount += 1;
-          if (previousResult) {
-            totalRecomputationCount += 1;
-            newResult.callCount += 1;
-            newResult.recomputationCount += 1;
-
-            // While we're here, let's make sure the selector isn't recomputing too often.
-            // @TODO: Make overrideable options for these values
-            if (newResult.callCount > 2 && newResult.recomputationCount > 0.75 * newResult.callCount) {
-              options.performanceChecksCallback(`${loggingPrefix} is recomputing a lot: ${newResult.recomputationCount} of ${newResult.callCount} runs.`);
-            } else if (totalCallCount > 5 && totalRecomputationCount > 0.75 * totalCallCount) {
-              options.performanceChecksCallback(`${options.displayName} is recomputing a lot in total: ${totalRecomputationCount} of ${totalCallCount} runs.`);
-            }
+          // While we're here, let's make sure the selector isn't recomputing too often.
+          // @TODO: Make overrideable options for these values
+          if (newResult.invokeCount > 5 && newResult.fullRunCount > 0.75 * newResult.invokeCount) {
+            options.performanceChecksCallback(`${loggingPrefix} is recomputing a lot: ${newResult.fullRunCount} of ${newResult.invokeCount} runs gave new results.`);
+          } else if (globalInvokeCount > 25 && globalFullRunCount > 0.75 * globalInvokeCount) {
+            options.performanceChecksCallback(`${options.displayName} is recomputing a lot in total: ${globalFullRunCount} of ${globalInvokeCount} runs gave new results.`);
           }
         }
       } else {
         // We need to re-run, but the parentCaller told us not to, so the default `hasReturnValue: false`
         // will pass through.
         previousResultsByParam[keyParamsString] = newResult;
+
+        if (options.performanceChecksEnabled) {
+          globalAbortedRunCount += 1;
+          newResult.abortedRunCount += 1;
+        }
+        if (typeof options.onAbortedRun === 'function') {
+          options.onAbortedRun(/* @TODO: What should go here? */);
+        }
       }
     }
 
@@ -523,20 +565,61 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
     return result.hasReturnValue;
   };
 
-  parameterizedSelector.getTotalCallCount = () => totalCallCount;
-  parameterizedSelector.getTotalRecomputations = () => totalRecomputationCount;
+  parameterizedSelector.getGlobalInvokeCount = () => globalInvokeCount;
+  parameterizedSelector.getGlobalSkippedRunCount = () => globalSkippedRunCount;
+  parameterizedSelector.getGlobalPhantomRunCount = () => globalPhantomRunCount;
+  parameterizedSelector.getGlobalFullRunCount = () => globalFullRunCount;
+  parameterizedSelector.getGlobalAbortedRunCount = () => globalAbortedRunCount;
+  parameterizedSelector.getAllGlobalCounts = () => ({
+    globalInvokeCount,
+    globalSkippedRunCount,
+    globalPhantomRunCount,
+    globalFullRunCount,
+    globalAbortedRunCount,
+  });
 
-  parameterizedSelector.getCallCountForParams = (keyParams) => {
+  parameterizedSelector.getInvokeCountForParams = (keyParams) => {
     const keyParamsString = createKeyFromParams(keyParams);
     const previousResult = previousResultsByParam[keyParamsString];
-
-    return previousResult ? previousResult.callCount : 0;
+    return previousResult ? previousResult.invokeCount : 0;
   };
-  parameterizedSelector.getRecomputationsForParams = (keyParams) => {
+  parameterizedSelector.getSkippedRunCountForParams = (keyParams) => {
     const keyParamsString = createKeyFromParams(keyParams);
     const previousResult = previousResultsByParam[keyParamsString];
-
-    return previousResult ? previousResult.recomputationCount : 0;
+    return previousResult ? previousResult.skippedRunCount : 0;
+  };
+  parameterizedSelector.getPhantomRunCountForParams = (keyParams) => {
+    const keyParamsString = createKeyFromParams(keyParams);
+    const previousResult = previousResultsByParam[keyParamsString];
+    return previousResult ? previousResult.phantomRunCount : 0;
+  };
+  parameterizedSelector.getFullRunCountForParams = (keyParams) => {
+    const keyParamsString = createKeyFromParams(keyParams);
+    const previousResult = previousResultsByParam[keyParamsString];
+    return previousResult ? previousResult.fullRunCount : 0;
+  };
+  parameterizedSelector.getAbortedRunCountForParams = (keyParams) => {
+    const keyParamsString = createKeyFromParams(keyParams);
+    const previousResult = previousResultsByParam[keyParamsString];
+    return previousResult ? previousResult.abortedRunCount : 0;
+  };
+  parameterizedSelector.getAllCountsForParams = (keyParams) => {
+    const keyParamsString = createKeyFromParams(keyParams);
+    const previousResult = previousResultsByParam[keyParamsString];
+    return previousResult
+      ? {
+        invokeCount: previousResult.invokeCount,
+        skippedRunCount: previousResult.skippedRunCount,
+        phantomRunCount: previousResult.phantomRunCount,
+        fullRunCount: previousResult.fullRunCount,
+        abortedRunCount: previousResult.abortedRunCount,
+      } : {
+        invokeCount: 0,
+        skippedRunCount: 0,
+        phantomRunCount: 0,
+        fullRunCount: 0,
+        abortedRunCount: 0,
+      };
   };
 
   parameterizedSelector.isParameterizedSelector = true;

@@ -45,6 +45,12 @@ const defaultOptions = {
   warningsEnabled: true,
   warningsCallback: console.warn, // eslint-disable-line no-console
   exceptionCallback: defaultInitialOptions.exceptionCallback,
+  // Callback functions
+  onInvoke: null,
+  onSkippedRun: null,
+  onPhantomRun: null,
+  onFullRun: null,
+  onAbortedRun: null,
 };
 
 // Note that there is no `setDefaultOptions`:
