@@ -169,27 +169,24 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
     const keyParamsString = createKeyFromParams(keyParams);
     const previousResult = previousResultsByParam[keyParamsString];
 
-    const verboseLoggingPrefix = options.verboseLoggingEnabled
-      && `Parameterized selector "${options.displayName}(${keyParamsString})"`;
+    const loggingPrefix = `Parameterized selector "${options.displayName}(${keyParamsString})"`;
 
     if (options.verboseLoggingEnabled && options.useConsoleGroup) {
-      console.groupCollapsed(`Starting ${verboseLoggingPrefix}`, { // eslint-disable-line no-console
+      console.groupCollapsed(`Starting ${loggingPrefix}`, { // eslint-disable-line no-console
         parentCaller,
         state,
         keyParams,
         keyParamsString,
         additionalArgs,
-        verboseLoggingPrefix,
         previousResult,
       });
     } else if (options.verboseLoggingEnabled) {
-      options.verboseLoggingCallback(`Starting ${verboseLoggingPrefix}`, {
+      options.verboseLoggingCallback(`Starting ${loggingPrefix}`, {
         parentCaller,
         state,
         keyParams,
         keyParamsString,
         additionalArgs,
-        verboseLoggingPrefix,
         previousResult,
       });
     }
@@ -229,7 +226,7 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
       )) {
         canUsePreviousResult = true;
         if (options.verboseLoggingEnabled) {
-          options.verboseLoggingCallback(`${verboseLoggingPrefix} is cached: state hasn't changed`);
+          options.verboseLoggingCallback(`${loggingPrefix} is cached: state hasn't changed`);
         }
       } else if (!isRootSelector && previousDependencies.length > 0) {
         // Step 3: Have any of our dependencies changed?
@@ -237,7 +234,7 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
         let anyDependencyHasChanged = false; // until proven guilty
 
         if (options.verboseLoggingEnabled) {
-          options.verboseLoggingCallback(`${verboseLoggingPrefix} is checking its dependencies for changes...`);
+          options.verboseLoggingCallback(`${loggingPrefix} is checking its dependencies for changes...`);
         }
 
         // Since we're only checking dependencies, we want to minimize any extra work the child selectors
@@ -262,7 +259,7 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
             anyDependencyHasChanged = true;
             if (options.verboseLoggingEnabled) {
               const dependencyKeyParamString = dependencySelector.createKeyFromParams(dependencyKeyParams);
-              options.verboseLoggingCallback(`${verboseLoggingPrefix} is dirty: "${dependencySelector.displayName}(${dependencyKeyParamString})" returned a new value.`);
+              options.verboseLoggingCallback(`${loggingPrefix} is dirty: "${dependencySelector.displayName}(${dependencyKeyParamString})" returned a new value.`);
             }
             break;
           }
@@ -272,7 +269,7 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
         if (!anyDependencyHasChanged) {
           canUsePreviousResult = true;
           if (options.verboseLoggingEnabled) {
-            options.verboseLoggingCallback(`${verboseLoggingPrefix} is cached: no dependencies have changed`);
+            options.verboseLoggingCallback(`${loggingPrefix} is cached: no dependencies have changed`);
           }
         }
       }
@@ -301,14 +298,14 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
           let returnValue;
           if (isRootSelector) {
             if (options.verboseLoggingEnabled) {
-              options.verboseLoggingCallback(`Running ${verboseLoggingPrefix} as a root selector`, {
+              options.verboseLoggingCallback(`Running ${loggingPrefix} as a root selector`, {
                 state, keyParams, additionalArgs,
               });
             }
             returnValue = innerFn(state, keyParams, ...additionalArgs);
           } else {
             if (options.verboseLoggingEnabled) {
-              options.verboseLoggingCallback(`Running ${verboseLoggingPrefix} as a normal selector`, {
+              options.verboseLoggingCallback(`Running ${loggingPrefix} as a normal selector`, {
                 state, keyParams, additionalArgs,
               });
             }
@@ -320,7 +317,7 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
         } catch (errorFromInnerFn) {
           newResult.error = errorFromInnerFn;
 
-          options.warningsCallback(`${verboseLoggingPrefix} threw an exception: ${newResult.error.message}`, newResult.error);
+          options.warningsCallback(`${loggingPrefix} threw an exception: ${newResult.error.message}`, newResult.error);
           if (options.warningsEnabled) {
             console.trace(); // eslint-disable-line no-console
           }
@@ -334,7 +331,7 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
           // We got back the same result: return what we had before
           newResult = previousResult;
           if (options.verboseLoggingEnabled) {
-            options.verboseLoggingCallback(`${verboseLoggingPrefix} didn't need to re-run: the result is the same`, {
+            options.verboseLoggingCallback(`${loggingPrefix} didn't need to re-run: the result is the same`, {
               previousResult,
               newResult,
             });
@@ -343,7 +340,7 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
           // It really IS new!
           previousResultsByParam[keyParamsString] = newResult;
           if (options.verboseLoggingEnabled) {
-            options.verboseLoggingCallback(`${verboseLoggingPrefix} has a new return value: `, newResult.returnValue);
+            options.verboseLoggingCallback(`${loggingPrefix} has a new return value: `, newResult.returnValue);
           }
         }
 
@@ -352,7 +349,7 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
           newResult.dependencies = callStackEntry.dependencies;
 
           if (options.warningsEnabled && isRootSelector) {
-            options.warningsCallback(`${verboseLoggingPrefix} is supposed to be a root selector, but it recorded dependencies`, {
+            options.warningsCallback(`${loggingPrefix} is supposed to be a root selector, but it recorded dependencies`, {
               callStackEntry,
             });
             // @TODO: Maybe add some intermittent checks around hasStaticDependencies when in dev mode,
@@ -370,7 +367,7 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
             // While we're here, let's make sure the selector isn't recomputing too often.
             // @TODO: Make overrideable options for these values
             if (newResult.callCount > 2 && newResult.recomputationCount > 0.75 * newResult.callCount) {
-              options.performanceChecksCallback(`${verboseLoggingPrefix} is recomputing a lot: ${newResult.recomputationCount} of ${newResult.callCount} runs.`);
+              options.performanceChecksCallback(`${loggingPrefix} is recomputing a lot: ${newResult.recomputationCount} of ${newResult.callCount} runs.`);
             } else if (totalCallCount > 5 && totalRecomputationCount > 0.75 * totalCallCount) {
               options.performanceChecksCallback(`${options.displayName} is recomputing a lot in total: ${totalRecomputationCount} of ${totalCallCount} runs.`);
             }
@@ -393,9 +390,9 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
 
     if (options.verboseLoggingEnabled) {
       if (newResult === previousResult) {
-        options.verboseLoggingCallback(`${verboseLoggingPrefix} is done, with no change`);
+        options.verboseLoggingCallback(`${loggingPrefix} is done, with no change`);
       } else {
-        options.verboseLoggingCallback(`${verboseLoggingPrefix} is done, with a new result: `, newResult);
+        options.verboseLoggingCallback(`${loggingPrefix} is done, with a new result: `, newResult);
       }
       if (options.useConsoleGroup) {
         console.groupEnd(); // eslint-disable-line no-console
