@@ -23,7 +23,8 @@ const pushCallStackEntry = (state, hasStaticDependencies, overrideValues = {}) =
   const callStackEntry = {
     state,
     hasStaticDependencies,
-    dependencies: [],
+    rootDependencies: [],
+    ownDependencies: [],
     canReRun: topOfCallStack ? topOfCallStack.canReRun : true,
     shouldRecordDependencies: true,
     ...overrideValues,
@@ -44,16 +45,53 @@ const popCallStackEntry = () => parameterizedSelectorCallStack.pop();
 const createResultRecord = (state, previousResult = {}, overrideValues = {}) => {
   const result = {
     state,
-    dependencies: previousResult.dependencies || [],
+    rootDependencies: previousResult.rootDependencies || [],
+    ownDependencies: previousResult.ownDependencies || [],
     hasReturnValue: false,
     returnValue: null,
     error: null,
     // Note that these counts must be incremented separately (if performance checks are on)
-    callCount: previousResult.callCount || 1,
-    recomputationCount: previousResult.recomputationCount || 0,
+    invokeCount: previousResult.invokeCount || 1,
+    skippedRunCount: previousResult.skippedRunCount || 0,
+    phantomRunCount: previousResult.phantomRunCount || 0,
+    fullRunCount: previousResult.fullRunCount || 0,
+    abortedRunCount: previousResult.abortedRunCount || 0,
     ...overrideValues,
   };
   return result;
+};
+
+
+const hasAnyDependencyChanged = (state, dependencyList, options, loggingPrefix, additionalArgs = []) => {
+  const dependencyListLength = dependencyList.length;
+  for (let i = 0; i < dependencyListLength; i += 1) {
+    const [dependencySelector, dependencyKeyParams, dependencyReturnValue] = dependencyList[i];
+
+    // Does our dependency have anything new?
+    const result = dependencySelector.directRunFromParent(state, dependencyKeyParams, ...additionalArgs);
+    // The selector function itself returns some additional metadata alongside the returnValue,
+    // to cover exceptions and edge cases like not being able to run.
+    const {
+      hasReturnValue,
+      returnValue: newReturnValue,
+    } = result;
+
+    if (!hasReturnValue) {
+      if (options.verboseLoggingEnabled) {
+        const dependencyKeyParamString = dependencySelector.createKeyFromParams(dependencyKeyParams);
+        options.verboseLoggingCallback(`${loggingPrefix} is dirty: "${dependencySelector.displayName}(${dependencyKeyParamString})" could not run.`);
+      }
+      return true;
+    }
+    if (newReturnValue !== dependencyReturnValue) {
+      if (options.verboseLoggingEnabled) {
+        const dependencyKeyParamString = dependencySelector.createKeyFromParams(dependencyKeyParams);
+        options.verboseLoggingCallback(`${loggingPrefix} is dirty: "${dependencySelector.displayName}(${dependencyKeyParamString})" returned a new value.`);
+      }
+      return true;
+    }
+  }
+  return false;
 };
 
 
@@ -61,7 +99,7 @@ const createResultRecord = (state, previousResult = {}, overrideValues = {}) => 
  * Each selector needs a unique displayName. We'll pull that from options or the innerFn if possible,
  * but if we have to fall back to raw numbers we'll use this counter to keep them distinct.
  */
-let unnamedCount = 0;
+let numUnnamedSelectors = 0;
 
 
 /**
@@ -84,8 +122,8 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
     if (functionDisplayName) {
       options.displayName = `${options.displayNamePrefix}(${functionDisplayName})`;
     } else {
-      unnamedCount += 1;
-      options.displayName = `${options.displayNamePrefix}(#${unnamedCount})`;
+      numUnnamedSelectors += 1;
+      options.displayName = `${options.displayNamePrefix}(#${numUnnamedSelectors})`;
     }
   }
   if (options.verboseLoggingEnabled) {
@@ -109,15 +147,22 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
    *
    *  where each resultRecord looks like: {
    *    state,
-   *    dependencies: [
+   *    rootDependencies: [
+   *      [parameterizedSelector, keyParams, returnValue],
+   *      ...
+   *    ],
+   *    ownDependencies: [
    *      [parameterizedSelector, keyParams, returnValue],
    *      ...
    *    ],
    *    hasReturnValue,
    *    returnValue,
    *    error,
-   *    callCount,
-   *    recomputationCount,
+   *    invokeCount,
+   *    skippedRunCount,
+   *    phantomRunCount,
+   *    fullRunCount,
+   *    abortedRunCount,
    *  }
    */
   const previousResultsByParam = {};
@@ -130,8 +175,11 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
    * Note that these counts apply across ALL params for the selector. There is a separate set of per-param
    * counters, tracked in the previousResults.
    */
-  let totalCallCount = 0;
-  let totalRecomputationCount = 0;
+  let globalInvokeCount = 0;
+  let globalSkippedRunCount = 0;
+  let globalPhantomRunCount = 0;
+  let globalFullRunCount = 0;
+  let globalAbortedRunCount = 0;
 
 
   /**
@@ -151,6 +199,9 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
    *  3. Check our dependencies to see if any of them have changed:
    *      We'll execute each dependency (in a lightweight mode), and compare the new result to what we received
    *      the previous time. If every one of them gave us the exact same object we got last time, skip to step 6.
+   *        * This is done first by checkout our "root" dependencies (root selectors that should run super-fast),
+   *          then checking our dependencies' "root" dependencies, and then finally by checking the intermediate
+   *          selectors that live between them.
    *  4. We need to re-run: put some info onto the call stack and run the inner function.
    *  5. Check the result: if it's indistinguishable from what the inner function returned before, reuse the old value.
    *      - This was a needless re-run, but by returning the prior value we can help other selectors and consumers
@@ -169,27 +220,24 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
     const keyParamsString = createKeyFromParams(keyParams);
     const previousResult = previousResultsByParam[keyParamsString];
 
-    const verboseLoggingPrefix = options.verboseLoggingEnabled
-      && `Parameterized selector "${options.displayName}(${keyParamsString})"`;
+    const loggingPrefix = `Parameterized selector "${options.displayName}(${keyParamsString})"`;
 
     if (options.verboseLoggingEnabled && options.useConsoleGroup) {
-      console.groupCollapsed(`Starting ${verboseLoggingPrefix}`, { // eslint-disable-line no-console
+      console.groupCollapsed(`Starting ${loggingPrefix}`, { // eslint-disable-line no-console
         parentCaller,
         state,
         keyParams,
         keyParamsString,
         additionalArgs,
-        verboseLoggingPrefix,
         previousResult,
       });
     } else if (options.verboseLoggingEnabled) {
-      options.verboseLoggingCallback(`Starting ${verboseLoggingPrefix}`, {
+      options.verboseLoggingCallback(`Starting ${loggingPrefix}`, {
         parentCaller,
         state,
         keyParams,
         keyParamsString,
         additionalArgs,
-        verboseLoggingPrefix,
         previousResult,
       });
     }
@@ -210,14 +258,26 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
       }
     }
 
+    if (options.performanceChecksEnabled) {
+      globalInvokeCount += 1;
+      if (previousResult) {
+        previousResult.invokeCount += 1;
+      }
+    }
+    if (typeof options.onInvoke === 'function') {
+      options.onInvoke(/* @TODO: What should go here? */);
+    }
+
     // Step 1: Do we have a prior result for this parameterizedSelector + its keyParams?
     let canUsePreviousResult = false; // until proven otherwise
 
     if (previousResult && previousResult.hasReturnValue) {
       const {
         state: previousState,
-        dependencies: previousDependencies,
-        // Note that callCount and recomputationCount are only referenced if they're actually in use.
+        rootDependencies: previousRootDependencies,
+        ownDependencies: previousOwnDependencies,
+        // Note that invokeCount, skippedRunCount, phantomRunCount, fullRunCount, and abortedRunCount
+        // are only referenced if they're actually in use.
       } = previousResult;
 
       // Step 2: Have we already run with these params for this state?
@@ -229,15 +289,17 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
       )) {
         canUsePreviousResult = true;
         if (options.verboseLoggingEnabled) {
-          options.verboseLoggingCallback(`${verboseLoggingPrefix} is cached: state hasn't changed`);
+          options.verboseLoggingCallback(`${loggingPrefix} is cached: state hasn't changed`);
         }
-      } else if (!isRootSelector && previousDependencies.length > 0) {
+      } else if (!isRootSelector && (
+        previousRootDependencies.length > 0
+        || previousOwnDependencies.length > 0
+      )) {
         // Step 3: Have any of our dependencies changed?
         // @TODO: Need to warn if a root selector ever has dependencies
-        let anyDependencyHasChanged = false; // until proven guilty
 
         if (options.verboseLoggingEnabled) {
-          options.verboseLoggingCallback(`${verboseLoggingPrefix} is checking its dependencies for changes...`);
+          options.verboseLoggingCallback(`${loggingPrefix} is checking its dependencies for changes...`);
         }
 
         // Since we're only checking dependencies, we want to minimize any extra work the child selectors
@@ -246,33 +308,17 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
           shouldRecordDependencies: false,
         });
 
-        for (let i = 0; i < previousDependencies.length; i += 1) {
-          const [dependencySelector, dependencyKeyParams, dependencyReturnValue] = previousDependencies[i];
+        // We'll check the root dependencies first: if one of them has changed, we'll check out intermediates.
+        // If one of those has also changed, then we need to rerun.
+        const hasChanges = hasAnyDependencyChanged(state, previousRootDependencies, options, loggingPrefix, additionalArgs) // eslint-disable-line max-len
+          && hasAnyDependencyChanged(state, previousOwnDependencies, options, loggingPrefix, additionalArgs);
 
-          // Does our dependency have anything new?
-          const result = dependencySelector.directRunFromParent(state, dependencyKeyParams, ...additionalArgs);
-          // The selector function itself returns some additional metadata alongside the returnValue,
-          // to cover exceptions and edge cases like not being allowed to rerun when needed.
-          const {
-            hasReturnValue,
-            returnValue: newReturnValue,
-          } = result;
-
-          if (hasReturnValue && newReturnValue !== dependencyReturnValue) {
-            anyDependencyHasChanged = true;
-            if (options.verboseLoggingEnabled) {
-              const dependencyKeyParamString = dependencySelector.createKeyFromParams(dependencyKeyParams);
-              options.verboseLoggingCallback(`${verboseLoggingPrefix} is dirty: "${dependencySelector.displayName}(${dependencyKeyParamString})" returned a new value.`);
-            }
-            break;
-          }
-        }
         popCallStackEntry();
 
-        if (!anyDependencyHasChanged) {
+        if (!hasChanges) {
           canUsePreviousResult = true;
           if (options.verboseLoggingEnabled) {
-            options.verboseLoggingCallback(`${verboseLoggingPrefix} is cached: no dependencies have changed`);
+            options.verboseLoggingCallback(`${loggingPrefix} is cached: no dependencies have changed`);
           }
         }
       }
@@ -286,8 +332,11 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
       newResult = previousResult;
 
       if (options.performanceChecksEnabled) {
-        totalCallCount += 1;
-        newResult.callCount += 1;
+        globalSkippedRunCount += 1;
+        newResult.skippedRunCount += 1;
+      }
+      if (typeof options.onSkippedRun === 'function') {
+        options.onSkippedRun(/* @TODO: What should go here? */);
       }
     } else {
       // Step 4: Run and obtain a new result, if we can.
@@ -301,14 +350,14 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
           let returnValue;
           if (isRootSelector) {
             if (options.verboseLoggingEnabled) {
-              options.verboseLoggingCallback(`Running ${verboseLoggingPrefix} as a root selector`, {
+              options.verboseLoggingCallback(`Running ${loggingPrefix} as a root selector`, {
                 state, keyParams, additionalArgs,
               });
             }
             returnValue = innerFn(state, keyParams, ...additionalArgs);
           } else {
             if (options.verboseLoggingEnabled) {
-              options.verboseLoggingCallback(`Running ${verboseLoggingPrefix} as a normal selector`, {
+              options.verboseLoggingCallback(`Running ${loggingPrefix} as a normal selector`, {
                 state, keyParams, additionalArgs,
               });
             }
@@ -320,7 +369,7 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
         } catch (errorFromInnerFn) {
           newResult.error = errorFromInnerFn;
 
-          options.warningsCallback(`${verboseLoggingPrefix} threw an exception: ${newResult.error.message}`, newResult.error);
+          options.warningsCallback(`${loggingPrefix} threw an exception: ${newResult.error.message}`, newResult.error);
           if (options.warningsEnabled) {
             console.trace(); // eslint-disable-line no-console
           }
@@ -331,28 +380,50 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
         if (previousResult && previousResult.hasReturnValue && newResult.hasReturnValue
           && compareSelectorResults(previousResult.returnValue, newResult.returnValue)
         ) {
-          // We got back the same result: return what we had before
+          // We got back the same result: return what we had before (but update its state so we don't need
+          // to check it again)
           newResult = previousResult;
+          newResult.state = state;
           if (options.verboseLoggingEnabled) {
-            options.verboseLoggingCallback(`${verboseLoggingPrefix} didn't need to re-run: the result is the same`, {
+            options.verboseLoggingCallback(`${loggingPrefix} didn't need to re-run: the result is the same`, {
               previousResult,
               newResult,
             });
+          }
+
+          if (options.performanceChecksEnabled) {
+            globalPhantomRunCount += 1;
+            newResult.phantomRunCount += 1;
+          }
+          if (typeof options.onPhantomRun === 'function') {
+            options.onPhantomRun(/* @TODO: What should go here? */);
           }
         } else {
           // It really IS new!
           previousResultsByParam[keyParamsString] = newResult;
           if (options.verboseLoggingEnabled) {
-            options.verboseLoggingCallback(`${verboseLoggingPrefix} has a new return value: `, newResult.returnValue);
+            options.verboseLoggingCallback(`${loggingPrefix} has a new return value: `, newResult.returnValue);
+          }
+
+          if (options.performanceChecksEnabled) {
+            globalFullRunCount += 1;
+            newResult.fullRunCount += 1;
+          }
+          if (typeof options.onFullRun === 'function') {
+            options.onFullRun(/* @TODO: What should go here? */);
           }
         }
 
-        if (!newResult.error && callStackEntry.dependencies.length) {
+        if (!newResult.error && (
+          callStackEntry.rootDependencies.length
+          || callStackEntry.ownDependencies.length
+        )) {
           // Carry over the bookkeeping records of whatever sub-selectors were run within innerFn.
-          newResult.dependencies = callStackEntry.dependencies;
+          newResult.rootDependencies = callStackEntry.rootDependencies;
+          newResult.ownDependencies = callStackEntry.ownDependencies;
 
           if (options.warningsEnabled && isRootSelector) {
-            options.warningsCallback(`${verboseLoggingPrefix} is supposed to be a root selector, but it recorded dependencies`, {
+            options.warningsCallback(`${loggingPrefix} is supposed to be a root selector, but it recorded dependencies`, {
               callStackEntry,
             });
             // @TODO: Maybe add some intermittent checks around hasStaticDependencies when in dev mode,
@@ -361,25 +432,26 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
         }
 
         if (options.performanceChecksEnabled) {
-          totalCallCount += 1;
-          if (previousResult) {
-            totalRecomputationCount += 1;
-            newResult.callCount += 1;
-            newResult.recomputationCount += 1;
-
-            // While we're here, let's make sure the selector isn't recomputing too often.
-            // @TODO: Make overrideable options for these values
-            if (newResult.callCount > 2 && newResult.recomputationCount > 0.75 * newResult.callCount) {
-              options.performanceChecksCallback(`${verboseLoggingPrefix} is recomputing a lot: ${newResult.recomputationCount} of ${newResult.callCount} runs.`);
-            } else if (totalCallCount > 5 && totalRecomputationCount > 0.75 * totalCallCount) {
-              options.performanceChecksCallback(`${options.displayName} is recomputing a lot in total: ${totalRecomputationCount} of ${totalCallCount} runs.`);
-            }
+          // While we're here, let's make sure the selector isn't recomputing too often.
+          // @TODO: Make overrideable options for these values
+          if (newResult.invokeCount > 5 && newResult.fullRunCount > 0.75 * newResult.invokeCount) {
+            options.performanceChecksCallback(`${loggingPrefix} is recomputing a lot: ${newResult.fullRunCount} of ${newResult.invokeCount} runs gave new results.`);
+          } else if (globalInvokeCount > 25 && globalFullRunCount > 0.75 * globalInvokeCount) {
+            options.performanceChecksCallback(`${options.displayName} is recomputing a lot in total: ${globalFullRunCount} of ${globalInvokeCount} runs gave new results.`);
           }
         }
       } else {
         // We need to re-run, but the parentCaller told us not to, so the default `hasReturnValue: false`
         // will pass through.
         previousResultsByParam[keyParamsString] = newResult;
+
+        if (options.performanceChecksEnabled) {
+          globalAbortedRunCount += 1;
+          newResult.abortedRunCount += 1;
+        }
+        if (typeof options.onAbortedRun === 'function') {
+          options.onAbortedRun(/* @TODO: What should go here? */);
+        }
       }
     }
 
@@ -388,14 +460,23 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
     if (parentCaller && parentCaller.shouldRecordDependencies) {
       // @TODO: Split this into separate functions so that they can be ordered in definition order
       // eslint-disable-next-line no-use-before-define
-      parentCaller.dependencies.push([parameterizedSelector, keyParams, newResult.returnValue]);
+      const thisResultRecord = [parameterizedSelector, keyParams, newResult.returnValue];
+      // Regardless of whether or not it's a root dependency, we need to track it as *our own* immediate dependency
+      parentCaller.ownDependencies.push(thisResultRecord);
+
+      if (isRootSelector) {
+        const callStackLength = parameterizedSelectorCallStack.length;
+        for (let i = 0; i < callStackLength; i += 1) {
+          parameterizedSelectorCallStack[i].rootDependencies.push(thisResultRecord);
+        }
+      }
     }
 
     if (options.verboseLoggingEnabled) {
       if (newResult === previousResult) {
-        options.verboseLoggingCallback(`${verboseLoggingPrefix} is done, with no change`);
+        options.verboseLoggingCallback(`${loggingPrefix} is done, with no change`);
       } else {
-        options.verboseLoggingCallback(`${verboseLoggingPrefix} is done, with a new result: `, newResult);
+        options.verboseLoggingCallback(`${loggingPrefix} is done, with a new result: `, newResult);
       }
       if (options.useConsoleGroup) {
         console.groupEnd(); // eslint-disable-line no-console
@@ -465,30 +546,80 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
     const topOfCallStack = !getTopCallStackEntry();
     const argsWithState = getArgumentsFromExternalCall(args);
 
-    pushCallStackEntry(argsWithState[0], hasStaticDependencies, {
-      dependencies: topOfCallStack ? topOfCallStack.dependencies : [],
-      canReRun: false,
-    });
+    if (topOfCallStack) {
+      pushCallStackEntry(argsWithState[0], hasStaticDependencies, {
+        rootDependencies: topOfCallStack.rootDependencies,
+        ownDependencies: topOfCallStack.ownDependencies,
+        canReRun: false,
+      });
+    } else {
+      pushCallStackEntry(argsWithState[0], hasStaticDependencies, {
+        rootDependencies: [],
+        ownDependencies: [],
+        canReRun: false,
+      });
+    }
     const result = evaluateParameterizedSelector(...argsWithState);
     popCallStackEntry();
 
     return result.hasReturnValue;
   };
 
-  parameterizedSelector.getTotalCallCount = () => totalCallCount;
-  parameterizedSelector.getTotalRecomputations = () => totalRecomputationCount;
+  parameterizedSelector.getGlobalInvokeCount = () => globalInvokeCount;
+  parameterizedSelector.getGlobalSkippedRunCount = () => globalSkippedRunCount;
+  parameterizedSelector.getGlobalPhantomRunCount = () => globalPhantomRunCount;
+  parameterizedSelector.getGlobalFullRunCount = () => globalFullRunCount;
+  parameterizedSelector.getGlobalAbortedRunCount = () => globalAbortedRunCount;
+  parameterizedSelector.getAllGlobalCounts = () => ({
+    globalInvokeCount,
+    globalSkippedRunCount,
+    globalPhantomRunCount,
+    globalFullRunCount,
+    globalAbortedRunCount,
+  });
 
-  parameterizedSelector.getCallCountForParams = (keyParams) => {
+  parameterizedSelector.getInvokeCountForParams = (keyParams) => {
     const keyParamsString = createKeyFromParams(keyParams);
     const previousResult = previousResultsByParam[keyParamsString];
-
-    return previousResult ? previousResult.callCount : 0;
+    return previousResult ? previousResult.invokeCount : 0;
   };
-  parameterizedSelector.getRecomputationsForParams = (keyParams) => {
+  parameterizedSelector.getSkippedRunCountForParams = (keyParams) => {
     const keyParamsString = createKeyFromParams(keyParams);
     const previousResult = previousResultsByParam[keyParamsString];
-
-    return previousResult ? previousResult.recomputationCount : 0;
+    return previousResult ? previousResult.skippedRunCount : 0;
+  };
+  parameterizedSelector.getPhantomRunCountForParams = (keyParams) => {
+    const keyParamsString = createKeyFromParams(keyParams);
+    const previousResult = previousResultsByParam[keyParamsString];
+    return previousResult ? previousResult.phantomRunCount : 0;
+  };
+  parameterizedSelector.getFullRunCountForParams = (keyParams) => {
+    const keyParamsString = createKeyFromParams(keyParams);
+    const previousResult = previousResultsByParam[keyParamsString];
+    return previousResult ? previousResult.fullRunCount : 0;
+  };
+  parameterizedSelector.getAbortedRunCountForParams = (keyParams) => {
+    const keyParamsString = createKeyFromParams(keyParams);
+    const previousResult = previousResultsByParam[keyParamsString];
+    return previousResult ? previousResult.abortedRunCount : 0;
+  };
+  parameterizedSelector.getAllCountsForParams = (keyParams) => {
+    const keyParamsString = createKeyFromParams(keyParams);
+    const previousResult = previousResultsByParam[keyParamsString];
+    return previousResult
+      ? {
+        invokeCount: previousResult.invokeCount,
+        skippedRunCount: previousResult.skippedRunCount,
+        phantomRunCount: previousResult.phantomRunCount,
+        fullRunCount: previousResult.fullRunCount,
+        abortedRunCount: previousResult.abortedRunCount,
+      } : {
+        invokeCount: 0,
+        skippedRunCount: 0,
+        phantomRunCount: 0,
+        fullRunCount: 0,
+        abortedRunCount: 0,
+      };
   };
 
   parameterizedSelector.isParameterizedSelector = true;

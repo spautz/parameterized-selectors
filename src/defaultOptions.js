@@ -18,7 +18,7 @@ const willThrowErrorIfNotSet = label => () => {
 const defaultInitialOptions = {
   displayNamePrefix: 'parameterizedSelector',
   compareIncomingStates: COMPARISON_PRESETS.SAME_REFERENCE,
-  compareSelectorResults: COMPARISON_PRESETS.SAME_REFERENCE_OR_EMPTY,
+  compareSelectorResults: COMPARISON_PRESETS.SHALLOW_EQUAL,
   exceptionCallback: (errorMessage, error) => {
     console.error(errorMessage, error); // eslint-disable-line no-console
     throw error;
@@ -39,12 +39,18 @@ const defaultOptions = {
   displayName: null,
   useConsoleGroup: true,
   verboseLoggingEnabled: false,
-  verboseLoggingCallback: console.log, /* eslint-disable-line no-console */
+  verboseLoggingCallback: console.log, // eslint-disable-line no-console
   performanceChecksEnabled: (typeof __DEV__ !== 'undefined' && !!__DEV__),
-  performanceChecksCallback: console.log, /* eslint-disable-line no-console */
+  performanceChecksCallback: console.log, // eslint-disable-line no-console
   warningsEnabled: true,
-  warningsCallback: console.warn, /* eslint-disable-line no-console */
+  warningsCallback: console.warn, // eslint-disable-line no-console
   exceptionCallback: defaultInitialOptions.exceptionCallback,
+  // Callback functions
+  onInvoke: null,
+  onSkippedRun: null,
+  onPhantomRun: null,
+  onFullRun: null,
+  onAbortedRun: null,
 };
 
 // Note that there is no `setDefaultOptions`:

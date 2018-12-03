@@ -37,17 +37,21 @@ const COMPARISON_PRESETS = {
     if (cannotPossiblyBeEqual(a, b)) {
       return false;
     }
-    for (const i in a) { // eslint-disable-line no-restricted-syntax
-      if (!(i in b)) {
-        return false;
+    if (a instanceof Object) {
+      for (const i in a) { // eslint-disable-line no-restricted-syntax
+        if (!(i in b)) {
+          return false;
+        }
       }
-    }
-    for (const i in b) { // eslint-disable-line no-restricted-syntax
-      if (a[i] !== b[i]) {
-        return false;
+      for (const i in b) { // eslint-disable-line no-restricted-syntax
+        if (a[i] !== b[i]) {
+          return false;
+        }
       }
+      return true;
     }
-    return true;
+    // else they're not objects: the earlier checks should have been enough
+    return false;
   },
   JSON_STRING: (a, b) => {
     if (a === b) {
@@ -89,6 +93,6 @@ const KEY_PRESETS = {
 
 
 export {
-  KEY_PRESETS,
   COMPARISON_PRESETS,
+  KEY_PRESETS,
 };
