@@ -165,7 +165,7 @@ createKeyFromParams | Function(params) | Must return a string representation of 
 compareIncomingStates | Function(previousState, newState) | For root selectors only, return true to indicate that the selector should run because the incoming state is equivalent to the previous state.
 compareSelectorResults | Function(previousResult, newResult) | Return true to indicate that the selector result is equivalent to its previous result, and that the previous result should be returned to callers instead.
 isRootSelector | Boolean | Indicates that the selector receives and can touch `state` directly. Root selectors will run very often, so they should be small and ideally few in number.
-hasStaticDepenencies | Boolean | Indicates that we can skip the work to dynamically re-record dependencies on each run.
+hasStaticDependencies | Boolean | Indicates that we can skip the work to dynamically re-record dependencies on each run.
 
 Settable at any time:
 
