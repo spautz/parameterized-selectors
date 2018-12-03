@@ -310,7 +310,7 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
 
         // We'll check the root dependencies first: if one of them has changed, we'll check out intermediates.
         // If one of those has also changed, then we need to rerun.
-        const hasChanges = hasAnyDependencyChanged(state, previousRootDependencies, options, loggingPrefix, additionalArgs)
+        const hasChanges = hasAnyDependencyChanged(state, previousRootDependencies, options, loggingPrefix, additionalArgs) // eslint-disable-line max-len
           && hasAnyDependencyChanged(state, previousOwnDependencies, options, loggingPrefix, additionalArgs);
 
         popCallStackEntry();
