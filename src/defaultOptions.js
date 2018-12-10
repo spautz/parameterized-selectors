@@ -38,6 +38,8 @@ const defaultOptions = {
   // Some options can be changed anytime
   displayName: null,
   useConsoleGroup: true,
+  runLoggingEnabled: false,
+  runLoggingCallback: console.log, // eslint-disable-line no-console
   verboseLoggingEnabled: false,
   verboseLoggingCallback: console.log, // eslint-disable-line no-console
   performanceChecksEnabled: (typeof __DEV__ !== 'undefined' && !!__DEV__),

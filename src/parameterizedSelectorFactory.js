@@ -264,6 +264,9 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
         previousResult.invokeCount += 1;
       }
     }
+    if (options.runLoggingEnabled) {
+      console.group(`Invoke: ${loggingPrefix}`);
+    }
     if (typeof options.onInvoke === 'function') {
       options.onInvoke(/* @TODO: What should go here? */);
     }
@@ -335,6 +338,10 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
         globalSkippedRunCount += 1;
         newResult.skippedRunCount += 1;
       }
+      if (options.runLoggingEnabled) {
+        options.runLoggingCallback(`Skipped run: ${loggingPrefix}`);
+        console.groupEnd();
+      }
       if (typeof options.onSkippedRun === 'function') {
         options.onSkippedRun(/* @TODO: What should go here? */);
       }
@@ -395,6 +402,10 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
             globalPhantomRunCount += 1;
             newResult.phantomRunCount += 1;
           }
+          if (options.runLoggingEnabled) {
+            options.runLoggingCallback(`Phantom run: ${loggingPrefix}`);
+            console.groupEnd();
+          }
           if (typeof options.onPhantomRun === 'function') {
             options.onPhantomRun(/* @TODO: What should go here? */);
           }
@@ -408,6 +419,10 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
           if (options.performanceChecksEnabled) {
             globalFullRunCount += 1;
             newResult.fullRunCount += 1;
+          }
+          if (options.runLoggingEnabled) {
+            options.runLoggingCallback(`Full run: ${loggingPrefix}`);
+            console.groupEnd();
           }
           if (typeof options.onFullRun === 'function') {
             options.onFullRun(/* @TODO: What should go here? */);
@@ -448,6 +463,10 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
         if (options.performanceChecksEnabled) {
           globalAbortedRunCount += 1;
           newResult.abortedRunCount += 1;
+        }
+        if (options.runLoggingEnabled) {
+          options.runLoggingCallback(`Aborted run: ${loggingPrefix}`);
+          console.groupEnd();
         }
         if (typeof options.onAbortedRun === 'function') {
           options.onAbortedRun(/* @TODO: What should go here? */);

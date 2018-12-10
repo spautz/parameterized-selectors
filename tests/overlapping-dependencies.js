@@ -78,7 +78,7 @@ describe('Overlapping dependencies', () => {
       function _selectRawAppointmentData(state, authorId) {
         return state.appointmentDataById[authorId];
       },
-      { verboseLoggingEnabled: true }
+      { runLoggingEnabled: true }
     );
     selectRawAppointmentIds = createParameterizedRootSelector(
       function _selectRawAppointmentIds(state) {
@@ -99,7 +99,7 @@ describe('Overlapping dependencies', () => {
           dateObject: makeDateObjectForDay(rawAppointmentData.dayNum),
         };
       },
-      { verboseLoggingEnabled: true }
+      { runLoggingEnabled: true }
     );
 
     selectAllAppointments = createParameterizedSelector(
