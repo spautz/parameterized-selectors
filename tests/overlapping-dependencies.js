@@ -147,7 +147,7 @@ describe('Overlapping dependencies', () => {
     assertCountsForParams(selectRawAppointmentData, 1, {
       invokeCount: 2,
       fullRunCount: 1,
-      skippedRunCount: 1,
+      phantomRunCount: 1,
     });
     assertCountsForParams(selectAppointmentById, { appointmentId: 1 }, {
       invokeCount: 2,

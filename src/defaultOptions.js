@@ -16,7 +16,7 @@ const willThrowErrorIfNotSet = label => () => {
  * if the consumer ever needs to reference the original value, after setting new defaults.
  */
 const defaultInitialOptions = {
-  displayNamePrefix: 'parameterizedSelector',
+  displayNamePrefix: 'parameterizedSelector:',
   compareIncomingStates: COMPARISON_PRESETS.SAME_REFERENCE,
   compareSelectorResults: COMPARISON_PRESETS.SHALLOW_EQUAL,
   exceptionCallback: (errorMessage, error) => {
