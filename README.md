@@ -172,7 +172,8 @@ Settable at any time:
 Name | Type | Description
 --- | --- | ---
 displayName | String | A human-readable name for the function, used for debug output and warnings.
-useConsoleGroup | Boolean | Will cause verbose logging to be nested in console groups.
+useConsoleGroup | Boolean | Will wrap other logging calls in console groups.
+runLoggingEnabled | Boolean | Will output general log information at the beginning and end of each selector invokation.
 verboseLoggingEnabled | Boolean | Will fill your console with far too much debug info. This will be cleaned up in the near future.
 verboseLoggingCallback | Function | Gets called for every verboseLogging item; this is `console.log` by default.
 performanceChecksEnabled | Boolean | Will give you warnings or pings if something causes a selector to re-run unnecessarily, or if it encounters other bad smells. (Not yet implemented.)
@@ -185,3 +186,4 @@ onSkippedRun | Function | Callback fired when a selector returns its cached valu
 onPhantomRun | Function | Callback fired when a selector runs but returns something equivalent to its cached value. Useful for debugging.
 onFullRun | Function | Callback fired when a selector runs and returns a new value. Useful for debugging.
 onAbortedRun | Function | Callback fired when a selector needs to run but isn't allowed to because it's being queried (e.g., for `hasCachedResult`.) Useful for debugging.
+onErrorRun | Function | Callback fired when a selector throws an exception. Useful for debugging.

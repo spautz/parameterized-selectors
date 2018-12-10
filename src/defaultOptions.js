@@ -53,6 +53,7 @@ const defaultOptions = {
   onPhantomRun: null,
   onFullRun: null,
   onAbortedRun: null,
+  onErrorRun: null,
 };
 
 // Note that there is no `setDefaultOptions`:

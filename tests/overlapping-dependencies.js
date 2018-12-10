@@ -16,8 +16,7 @@ const assert = chai.assert; // eslint-disable-line prefer-destructuring
 // @TODO: Is this useful enough to promote this to its own file, and possibly export?
 const assertCountsForParams = (selectorFn, params, expectedCounts) => {
   const actualCounts = selectorFn.getAllCountsForParams(params);
-
-  const verboseErrorInfo = `Checking counts for ${selectorFn.displayName}(${params}):
+  const verboseErrorInfo = `Checking counts for ${selectorFn.displayName}(${selectorFn.createKeyFromParams(params)}):
       Expected: ${JSON.stringify(expectedCounts)}
       Actual: ${JSON.stringify(actualCounts)}\n`;
 
@@ -25,7 +24,7 @@ const assertCountsForParams = (selectorFn, params, expectedCounts) => {
     if (!Object.hasOwnProperty.call(actualCounts, key)) {
       assert.fail(`${verboseErrorInfo}Invalid count type for assertCountsForParams: "${key}" not found`);
     }
-    assert.equal(actualCounts[key], expectedCounts[key], `${verboseErrorInfo}Count type "${key}" should match`);
+    assert.equal(actualCounts[key], expectedCounts[key], `${verboseErrorInfo} Count type "${key}" should match`);
   });
 };
 
@@ -75,10 +74,12 @@ describe('Overlapping dependencies', () => {
   beforeEach(() => {
     // The selectors get recreated for each test, to reset their call counts.
     selectRawAppointmentData = createParameterizedRootSelector(
-      function _selectRawAppointmentData(state, authorId) {
-        return state.appointmentDataById[authorId];
+      function _selectRawAppointmentData(state, appointmentId) {
+        return state.appointmentDataById[appointmentId];
       },
-      { runLoggingEnabled: true }
+      {
+        performanceChecksEnabled: true,
+      },
     );
     selectRawAppointmentIds = createParameterizedRootSelector(
       function _selectRawAppointmentIds(state) {
@@ -86,6 +87,7 @@ describe('Overlapping dependencies', () => {
       },
       {
         compareSelectorResults: COMPARISON_PRESETS.SHALLOW_EQUAL,
+        performanceChecksEnabled: true,
       },
     );
 
@@ -99,7 +101,9 @@ describe('Overlapping dependencies', () => {
           dateObject: makeDateObjectForDay(rawAppointmentData.dayNum),
         };
       },
-      { runLoggingEnabled: true }
+      {
+        performanceChecksEnabled: true,
+      },
     );
 
     selectAllAppointments = createParameterizedSelector(
@@ -109,6 +113,9 @@ describe('Overlapping dependencies', () => {
           appointmentId => selectAppointmentById({ appointmentId }),
         );
       },
+      {
+        performanceChecksEnabled: true,
+      },
     );
 
     selectAppointmentsForDay = createParameterizedSelector(
@@ -116,6 +123,9 @@ describe('Overlapping dependencies', () => {
         // This naive implementation is going to walk through all appointments
         const allAppointments = selectAllAppointments();
         return filter(allAppointments, appointment => appointment.dayNum === dayNum);
+      },
+      {
+        performanceChecksEnabled: true,
       },
     );
     selectAppointmentsForDayRange = createParameterizedSelector(
@@ -126,6 +136,9 @@ describe('Overlapping dependencies', () => {
           allAppointments,
           appointment => appointment.dayNum >= startDayNum && appointment.dayNum <= endDayNum,
         );
+      },
+      {
+        performanceChecksEnabled: true,
       },
     );
   });
@@ -150,6 +163,17 @@ describe('Overlapping dependencies', () => {
       phantomRunCount: 1,
     });
     assertCountsForParams(selectAppointmentById, { appointmentId: 1 }, {
+      invokeCount: 2,
+      fullRunCount: 1,
+      skippedRunCount: 1,
+    });
+
+    assertCountsForParams(selectRawAppointmentData, 2, {
+      invokeCount: 2,
+      fullRunCount: 1,
+      phantomRunCount: 1,
+    });
+    assertCountsForParams(selectAppointmentById, { appointmentId: 2 }, {
       invokeCount: 2,
       fullRunCount: 1,
       skippedRunCount: 1,

@@ -43,7 +43,7 @@ const popCallStackEntry = () => parameterizedSelectorCallStack.pop();
 
 /**
  * A "result record" tracks the last result -- anywhere/globally -- of running the selector with a particular
- * set of params. These records are mutated.
+ * state and set of params. These records are mutated and persistent.
  *
  * These are used with "dependency records" (which are parent-specific instead of global) to determine
  * whether a selector needs to re-run: if either the result record is out-of-date or the dependency record
@@ -52,24 +52,20 @@ const popCallStackEntry = () => parameterizedSelectorCallStack.pop();
  * Like pushCallStackEntry, this function ensures that the resultRecord objects always have the same shape,
  * and requires `state` be passed as a required arg.
  */
-const createResultRecord = (state, previousResult = {}, overrideValues = {}) => {
-  const result = {
-    state,
-    rootDependencies: previousResult.rootDependencies || [],
-    ownDependencies: previousResult.ownDependencies || [],
-    hasReturnValue: false,
-    returnValue: null,
-    error: null,
-    // This record gets created only after the invoke starts, so it begins at 1
-    invokeCount: previousResult.invokeCount || 1,
-    skippedRunCount: previousResult.skippedRunCount || 0,
-    phantomRunCount: previousResult.phantomRunCount || 0,
-    fullRunCount: previousResult.fullRunCount || 0,
-    abortedRunCount: previousResult.abortedRunCount || 0,
-    ...overrideValues,
-  };
-  return result;
-};
+const createResultRecord = state => ({
+  state,
+  rootDependencies: [],
+  ownDependencies: [],
+  hasReturnValue: false,
+  returnValue: null,
+  error: null,
+  invokeCount: 0,
+  skippedRunCount: 0,
+  phantomRunCount: 0,
+  fullRunCount: 0,
+  abortedRunCount: 0,
+  errorRunCount: 0,
+});
 
 
 const hasAnyDependencyChanged = (state, dependencyRecordList, options, loggingPrefix, additionalArgs = []) => {
@@ -173,6 +169,7 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
    *    phantomRunCount,
    *    fullRunCount,
    *    abortedRunCount,
+   *    errorRunCount,
    *  }
    */
   const resultRecordsByParam = {};
@@ -183,13 +180,14 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
    * This is primarily used for performance and unit-testing purposes.
    *
    * Note that these counts apply across ALL params for the selector. There is a separate set of per-param
-   * counters, tracked in the previousResults.
+   * counters, tracked in the individual resultRecords.
    */
   let globalInvokeCount = 0;
   let globalSkippedRunCount = 0;
   let globalPhantomRunCount = 0;
   let globalFullRunCount = 0;
   let globalAbortedRunCount = 0;
+  let globalErrorRunCount = 0;
 
 
   /**
@@ -228,7 +226,11 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
     const parentCaller = getTopCallStackEntry();
 
     const keyParamsString = createKeyFromParams(keyParams);
-    const previousResultRecord = resultRecordsByParam[keyParamsString];
+
+    if (!hasOwnProperty.call(resultRecordsByParam, keyParamsString)) {
+      resultRecordsByParam[keyParamsString] = createResultRecord(state);
+    }
+    const resultRecord = resultRecordsByParam[keyParamsString];
 
     const loggingPrefix = `"${options.displayName}(${keyParamsString})"`;
 
@@ -239,7 +241,7 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
         keyParams,
         keyParamsString,
         additionalArgs,
-        previousResultRecord,
+        resultRecord,
       });
     } else if (options.verboseLoggingEnabled) {
       options.verboseLoggingCallback(`Starting ${loggingPrefix}`, {
@@ -248,7 +250,7 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
         keyParams,
         keyParamsString,
         additionalArgs,
-        previousResultRecord,
+        resultRecord,
       });
     }
 
@@ -270,28 +272,25 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
 
     if (options.performanceChecksEnabled) {
       globalInvokeCount += 1;
-      if (previousResultRecord) {
-        previousResultRecord.invokeCount += 1;
-      }
+      resultRecord.invokeCount += 1;
     }
     if (options.runLoggingEnabled) {
       console.group(`Invoke: ${loggingPrefix}`);
     }
     if (typeof options.onInvoke === 'function') {
-      options.onInvoke(/* @TODO: What should go here? */);
+      options.onInvoke(keyParams, resultRecord);
     }
 
     // Step 1: Do we have a prior result for this parameterizedSelector + its keyParams?
     let canUsePreviousResult = false; // until proven otherwise
 
-    if (previousResultRecord && previousResultRecord.hasReturnValue) {
+    if (resultRecord.hasReturnValue) {
       const {
         state: previousState,
         rootDependencies: previousRootDependencies,
         ownDependencies: previousOwnDependencies,
-        // Note that invokeCount, skippedRunCount, phantomRunCount, fullRunCount, and abortedRunCount
-        // are only referenced if they're actually in use.
-      } = previousResultRecord;
+        // Note that the count vars are only referenced if they're actually in use.
+      } = resultRecord;
 
       // Step 2: Have we already run with these params for this state?
       // compareIncomingStates is only honored for root selectors
@@ -312,20 +311,10 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
           options.verboseLoggingCallback(`${loggingPrefix} is checking its dependencies for changes...`);
         }
 
-        // Since we're only checking dependencies, we want to minimize any extra work the child selectors
-        // could do.
-        // pushCallStackEntry(state, hasStaticDependencies, {
-          // @BUG?
-          // shouldRecordDependencies: false,
-          // canReRun: false,
-        // });
-
-        // We'll check the root dependencies first: if one of them has changed, we'll check out intermediates.
+        // We'll check the root dependencies first: if one of them has changed, we'll check our own direct dependencies.
         // If one of those has also changed, then we need to rerun.
         const hasChanges = hasAnyDependencyChanged(state, previousRootDependencies, options, loggingPrefix, additionalArgs) // eslint-disable-line max-len
           && hasAnyDependencyChanged(state, previousOwnDependencies, options, loggingPrefix, additionalArgs);
-
-        // popCallStackEntry();
 
         if (!hasChanges) {
           canUsePreviousResult = true;
@@ -336,149 +325,156 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
       }
     }
 
-    // We need to return a bunch of metaData along with the returnValue, at the very end. Instead of tracking
-    // a handful of separate variables, everything will be accumulated here.
-    let newResult;
+    // Regardless of whether we skip, rerun, phantom run, etc, we need to note that we did this work for
+    // this particular state.
+    resultRecord.state = state;
 
     if (canUsePreviousResult) {
-      newResult = previousResultRecord;
-
       if (options.performanceChecksEnabled) {
         globalSkippedRunCount += 1;
-        newResult.skippedRunCount += 1;
+        resultRecord.skippedRunCount += 1;
       }
       if (options.runLoggingEnabled) {
         options.runLoggingCallback(`Skipped run: ${loggingPrefix}`);
         console.groupEnd();
       }
+
       if (typeof options.onSkippedRun === 'function') {
-        options.onSkippedRun(/* @TODO: What should go here? */);
+        options.onSkippedRun(keyParams, resultRecord);
+      }
+    } else if (!parentCaller.canReRun) {
+      // We need to re-run, but the parentCaller told us not to
+      resultRecord.hasReturnValue = false;
+
+      if (options.performanceChecksEnabled) {
+        globalAbortedRunCount += 1;
+        resultRecord.abortedRunCount += 1;
+      }
+      if (options.runLoggingEnabled) {
+        options.runLoggingCallback(`Aborted run: ${loggingPrefix}`);
+        console.groupEnd();
+      }
+      if (typeof options.onAbortedRun === 'function') {
+        options.onAbortedRun(keyParams, resultRecord);
       }
     } else {
       // Step 4: Run and obtain a new result, if we can.
-      newResult = createResultRecord(state, previousResultRecord);
+      const oldReturnValue = resultRecord.returnValue;
+      let newReturnValue;
+      let newError;
 
-      if (parentCaller.canReRun) {
-        // Collect dependencies, if appropriate
-        pushCallStackEntry(state, hasStaticDependencies);
-
-        try {
-          let returnValue;
-          if (isRootSelector) {
-            if (options.verboseLoggingEnabled) {
-              options.verboseLoggingCallback(`Running ${loggingPrefix} as a root selector`, {
-                state, keyParams, additionalArgs,
-              });
-            }
-            returnValue = innerFn(state, keyParams, ...additionalArgs);
-          } else {
-            if (options.verboseLoggingEnabled) {
-              options.verboseLoggingCallback(`Running ${loggingPrefix} as a normal selector`, {
-                state, keyParams, additionalArgs,
-              });
-            }
-            returnValue = innerFn(keyParams, ...additionalArgs);
-          }
-          // If we reach this point without error, all is well
-          newResult.hasReturnValue = true;
-          newResult.returnValue = returnValue;
-        } catch (errorFromInnerFn) {
-          newResult.error = errorFromInnerFn;
-
-          options.warningsCallback(`${loggingPrefix} threw an exception: ${newResult.error.message}`, newResult.error);
-          if (options.warningsEnabled) {
-            console.trace(); // eslint-disable-line no-console
-          }
-        }
-        const callStackEntry = popCallStackEntry();
-
-        // Step 5: Did we really get back a new value?
-        if (previousResultRecord && previousResultRecord.hasReturnValue && newResult.hasReturnValue
-          && compareSelectorResults(previousResultRecord.returnValue, newResult.returnValue)
-        ) {
-          // We got back the same result: return what we had before (but update its state so we don't need
-          // to check it again)
-          newResult = previousResultRecord;
-          newResult.state = state;
+      pushCallStackEntry(state, hasStaticDependencies);
+      try {
+        if (isRootSelector) {
           if (options.verboseLoggingEnabled) {
-            options.verboseLoggingCallback(`${loggingPrefix} didn't need to re-run: the result is the same`, {
-              previousResultRecord,
-              newResult,
+            options.verboseLoggingCallback(`Running ${loggingPrefix} as a root selector`, {
+              state, keyParams, additionalArgs,
             });
           }
-
-          if (options.performanceChecksEnabled) {
-            globalPhantomRunCount += 1;
-            newResult.phantomRunCount += 1;
-          }
-          if (options.runLoggingEnabled) {
-            options.runLoggingCallback(`Phantom run: ${loggingPrefix}`);
-            console.groupEnd();
-          }
-          if (typeof options.onPhantomRun === 'function') {
-            options.onPhantomRun(/* @TODO: What should go here? */);
-          }
+          newReturnValue = innerFn(state, keyParams, ...additionalArgs);
         } else {
-          // It really IS new!
-          resultRecordsByParam[keyParamsString] = newResult;
           if (options.verboseLoggingEnabled) {
-            options.verboseLoggingCallback(`${loggingPrefix} has a new return value: `, newResult.returnValue);
-          }
-
-          if (options.performanceChecksEnabled) {
-            globalFullRunCount += 1;
-            newResult.fullRunCount += 1;
-          }
-          if (options.runLoggingEnabled) {
-            options.runLoggingCallback(`Full run: ${loggingPrefix}`);
-            console.groupEnd();
-          }
-          if (typeof options.onFullRun === 'function') {
-            options.onFullRun(/* @TODO: What should go here? */);
-          }
-        }
-
-        if (!newResult.error && (
-          callStackEntry.rootDependencies.length
-          || callStackEntry.ownDependencies.length
-        )) {
-          // Carry over the bookkeeping records of whatever sub-selectors were run within innerFn.
-          newResult.rootDependencies = callStackEntry.rootDependencies;
-          newResult.ownDependencies = callStackEntry.ownDependencies;
-
-          if (options.warningsEnabled && isRootSelector) {
-            options.warningsCallback(`${loggingPrefix} is supposed to be a root selector, but it recorded dependencies`, {
-              callStackEntry,
+            options.verboseLoggingCallback(`Running ${loggingPrefix} as a normal selector`, {
+              state, keyParams, additionalArgs,
             });
-            // @TODO: Maybe add some intermittent checks around hasStaticDependencies when in dev mode,
-            // to have it warn if something should be static but isn't, or if it always records the same set.
           }
+          newReturnValue = innerFn(keyParams, ...additionalArgs);
         }
+        // If we reach this point without error, all is well
+      } catch (errorFromInnerFn) {
+        newError = errorFromInnerFn;
+      }
+      const callStackEntry = popCallStackEntry();
+
+      // Step 5: Let's look at what we got back
+      if (newError) {
+        // Oh no!
+        resultRecord.returnValue = undefined;
+        resultRecord.hasReturnValue = false;
+        resultRecord.error = newError;
 
         if (options.performanceChecksEnabled) {
-          // While we're here, let's make sure the selector isn't recomputing too often.
-          // @TODO: Make overrideable options for these values
-          if (newResult.invokeCount > 5 && newResult.fullRunCount > 0.75 * newResult.invokeCount) {
-            options.performanceChecksCallback(`${loggingPrefix} is recomputing a lot: ${newResult.fullRunCount} of ${newResult.invokeCount} runs gave new results.`);
-          } else if (globalInvokeCount > 25 && globalFullRunCount > 0.75 * globalInvokeCount) {
-            options.performanceChecksCallback(`${options.displayName} is recomputing a lot in total: ${globalFullRunCount} of ${globalInvokeCount} runs gave new results.`);
-          }
+          globalErrorRunCount += 1;
+          resultRecord.errorRunCount += 1;
         }
-      } else {
-        // We need to re-run, but the parentCaller told us not to, so the default `hasReturnValue: false`
-        // will pass through.
-        resultRecordsByParam[keyParamsString] = newResult;
 
-        if (options.performanceChecksEnabled) {
-          globalAbortedRunCount += 1;
-          newResult.abortedRunCount += 1;
+        if (options.warningsEnabled) {
+          options.warningsCallback(`${loggingPrefix} threw an exception: ${newError.message}`, newError);
+          console.trace(); // eslint-disable-line no-console
         }
         if (options.runLoggingEnabled) {
-          options.runLoggingCallback(`Aborted run: ${loggingPrefix}`);
+          options.runLoggingCallback(`Error run: ${loggingPrefix}`);
           console.groupEnd();
         }
-        if (typeof options.onAbortedRun === 'function') {
-          options.onAbortedRun(/* @TODO: What should go here? */);
+        if (typeof options.onErrorRun === 'function') {
+          options.onErrorRun(oldReturnValue, undefined, keyParams, resultRecord);
+        }
+      } else if (resultRecord.hasReturnValue && compareSelectorResults(oldReturnValue, newReturnValue)) {
+        // We got back an equivalent result to what we had before. No need to update.
+        if (options.verboseLoggingEnabled) {
+          options.verboseLoggingCallback(`${loggingPrefix} didn't need to re-run: the result is the same`, {
+            resultRecord,
+          });
+        }
+
+        if (options.performanceChecksEnabled) {
+          globalPhantomRunCount += 1;
+          resultRecord.phantomRunCount += 1;
+        }
+        if (options.runLoggingEnabled) {
+          options.runLoggingCallback(`Phantom run: ${loggingPrefix}`);
+          console.groupEnd();
+        }
+        if (typeof options.onPhantomRun === 'function') {
+          // To better align with the other after-run callbacks, the 'new' value is sent as if it were the old value,
+          // so that the actual return value comes second.
+          options.onPhantomRun(newReturnValue, oldReturnValue, keyParams, resultRecord);
+        }
+      } else {
+        // It's a genuinely new value!
+        resultRecord.returnValue = newReturnValue;
+        resultRecord.hasReturnValue = true;
+        resultRecord.error = undefined;
+
+        if (options.verboseLoggingEnabled) {
+          options.verboseLoggingCallback(`${loggingPrefix} has a new return value: `, newReturnValue);
+        }
+
+        if (options.performanceChecksEnabled) {
+          globalFullRunCount += 1;
+          resultRecord.fullRunCount += 1;
+        }
+        if (options.runLoggingEnabled) {
+          options.runLoggingCallback(`Full run: ${loggingPrefix}`);
+          console.groupEnd();
+        }
+        if (typeof options.onFullRun === 'function') {
+          options.onFullRun(oldReturnValue, newReturnValue, keyParams, resultRecord);
+        }
+      }
+      // At this point, the values in resultRecord are all up-to-date
+
+      if (!resultRecord.error && (callStackEntry.rootDependencies.length || callStackEntry.ownDependencies.length)) {
+        // Update our dependencyRecords, so we know which sub-selectors were run within innerFn.
+        resultRecord.rootDependencies = callStackEntry.rootDependencies;
+        resultRecord.ownDependencies = callStackEntry.ownDependencies;
+
+        if (options.warningsEnabled && isRootSelector) {
+          options.warningsCallback(`${loggingPrefix} is supposed to be a root selector, but it recorded dependencies`, {
+            callStackEntry,
+          });
+          // @TODO: Maybe add some intermittent checks around hasStaticDependencies when in dev mode,
+          // to have it warn if something should be static but isn't, or if it always records the same set.
+        }
+      }
+
+      if (options.performanceChecksEnabled) {
+        // While we're here, let's make sure the selector isn't recomputing too often.
+        // @TODO: Make overrideable options for these values
+        if (resultRecord.invokeCount > 5 && resultRecord.fullRunCount > 0.75 * resultRecord.invokeCount) {
+          options.performanceChecksCallback(`${loggingPrefix} is recomputing a lot: ${resultRecord.fullRunCount} of ${resultRecord.invokeCount} runs gave new results.`);
+        } else if (globalInvokeCount > 25 && globalFullRunCount > 0.75 * globalInvokeCount) {
+          options.performanceChecksCallback(`${options.displayName} is recomputing a lot in total: ${globalFullRunCount} of ${globalInvokeCount} runs gave new results.`);
         }
       }
     }
@@ -490,33 +486,32 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
       // Regardless of whether or not it's a root dependency, we need to track it as *our own* immediate dependency
       parentCaller.ownDependencies.push(
         // eslint-disable-next-line no-use-before-define
-        [parameterizedSelector, keyParams, newResult.returnValue],
+        [parameterizedSelector, keyParams, resultRecord.returnValue],
       );
+    }
 
-      if (isRootSelector) {
-        const callStackLength = parameterizedSelectorCallStack.length;
-        for (let i = 0; i < callStackLength; i += 1) {
-          parameterizedSelectorCallStack[i].rootDependencies.push(
+    if (isRootSelector) {
+      const callStackLength = parameterizedSelectorCallStack.length;
+      for (let i = 0; i < callStackLength; i += 1) {
+        const callStackEntry = parameterizedSelectorCallStack[i];
+        if (callStackEntry.shouldRecordDependencies) {
+          callStackEntry.rootDependencies.push(
             // *Each* items in the stack gets its own, separate copy of the dependencyRecord
             // eslint-disable-next-line no-use-before-define
-            [parameterizedSelector, keyParams, newResult.returnValue],
+            [parameterizedSelector, keyParams, resultRecord.returnValue],
           );
         }
       }
     }
 
     if (options.verboseLoggingEnabled) {
-      if (newResult === previousResultRecord) {
-        options.verboseLoggingCallback(`${loggingPrefix} is done, with no change`);
-      } else {
-        options.verboseLoggingCallback(`${loggingPrefix} is done, with a new result: `, newResult);
-      }
+      options.verboseLoggingCallback(`${loggingPrefix} is done`, resultRecord);
       if (options.useConsoleGroup) {
         console.groupEnd(); // eslint-disable-line no-console
       }
     }
 
-    return newResult;
+    return resultRecord;
   };
 
 
@@ -564,9 +559,19 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
     return result.returnValue;
   }
 
-  // This lets selectors bypass the wrappers internally, when appropriate. It shouldn't be called from
-  // outside of this file (and tests), though.
+  /**
+   * This lets selectors bypass the wrappers internally, when appropriate. It shouldn't be called from
+   * outside of this file (and tests), though.
+   */
   parameterizedSelector.directRunFromParent = evaluateParameterizedSelector;
+
+  /**
+   * This is useful for debugging, but should not be used otherwise.
+   */
+  parameterizedSelector.getResultRecord = (keyParams) => {
+    const keyParamsString = createKeyFromParams(keyParams);
+    return resultRecordsByParam[keyParamsString];
+  };
 
   /**
    * This offers a way to inspect a parameterizedSelector call's status without calling it.
@@ -576,7 +581,7 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
    *        decide when/whether to re-run the dependencies to see if they've changed.
    */
   parameterizedSelector.hasCachedResult = (...args) => {
-    const parentCaller = getTopCallStackEntry();
+    // const parentCaller = getTopCallStackEntry();
     const argsWithState = getArgumentsFromExternalCall(args);
 
     // if (parentCaller) {
@@ -586,9 +591,9 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
     //     canReRun: false,
     //   });
     // } else {
-      pushCallStackEntry(argsWithState[0], hasStaticDependencies, {
-        canReRun: false,
-      });
+    pushCallStackEntry(argsWithState[0], hasStaticDependencies, {
+      canReRun: false,
+    });
     // }
     const result = evaluateParameterizedSelector(...argsWithState);
     popCallStackEntry();
@@ -601,12 +606,14 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
   parameterizedSelector.getGlobalPhantomRunCount = () => globalPhantomRunCount;
   parameterizedSelector.getGlobalFullRunCount = () => globalFullRunCount;
   parameterizedSelector.getGlobalAbortedRunCount = () => globalAbortedRunCount;
+  parameterizedSelector.getGlobalErrorRunCount = () => globalErrorRunCount;
   parameterizedSelector.getAllGlobalCounts = () => ({
     globalInvokeCount,
     globalSkippedRunCount,
     globalPhantomRunCount,
     globalFullRunCount,
     globalAbortedRunCount,
+    globalErrorRunCount,
   });
 
   parameterizedSelector.getInvokeCountForParams = (keyParams) => {
@@ -634,6 +641,12 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
     const resultRecord = resultRecordsByParam[keyParamsString];
     return resultRecord ? resultRecord.abortedRunCount : 0;
   };
+  parameterizedSelector.getErrorRunCountForParams = (keyParams) => {
+    const keyParamsString = createKeyFromParams(keyParams);
+    const resultRecord = resultRecordsByParam[keyParamsString];
+    return resultRecord ? resultRecord.errorRunCount : 0;
+  };
+
   parameterizedSelector.getAllCountsForParams = (keyParams) => {
     const keyParamsString = createKeyFromParams(keyParams);
     const resultRecord = resultRecordsByParam[keyParamsString];
@@ -644,12 +657,14 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
         phantomRunCount: resultRecord.phantomRunCount,
         fullRunCount: resultRecord.fullRunCount,
         abortedRunCount: resultRecord.abortedRunCount,
+        errorRunCount: resultRecord.errorRunCount,
       } : {
         invokeCount: 0,
         skippedRunCount: 0,
         phantomRunCount: 0,
         fullRunCount: 0,
         abortedRunCount: 0,
+        errorRunCount: 0,
       };
   };
 
