@@ -116,12 +116,81 @@ describe('Overlapping dependencies', () => {
     });
   });
 
-  it('works properly when selecting outer selector before inner, with a different selector', () => {
-  });
 
   it('works properly when selecting inner selector before outer', () => {
-  });
+    let state = initialState;
+    const allAppointments_1 = selectAllAppointments(state);
+    const allAppointmentsInOrder_1 = selectAllAppointmentsInOrder(state);
 
-  it('works properly when selecting inner selector before outer, with a different selector', () => {
+    assert.equal(allAppointmentsInOrder_1[5].title, 'Break');
+    assert.equal(allAppointments_1[5].title, 'Finals, day 1');
+    assertCountsForParams(selectRawAppointmentData, 5, {
+      invokeCount: 1,
+      fullRunCount: 1,
+    });
+    assertCountsForParams(selectAllAppointmentsInOrder, null, {
+      invokeCount: 1,
+      fullRunCount: 1,
+    });
+    assertCountsForParams(selectAllAppointments, null, {
+      invokeCount: 2,
+      fullRunCount: 1,
+      skippedRunCount: 1,
+    });
+
+    // A no-impact change
+    state = produce(state, (newState) => {
+      /* eslint-disable no-param-reassign */
+      newState.appointmentDataById = { ...state.appointmentDataById };
+    });
+
+    const allAppointments_2 = selectAllAppointments(state);
+    const allAppointmentsInOrder_2 = selectAllAppointmentsInOrder(state);
+
+    assert.equal(allAppointmentsInOrder_2[5].title, 'Break');
+    assert.equal(allAppointments_2[5].title, 'Finals, day 1');
+    assertCountsForParams(selectRawAppointmentData, 5, {
+      invokeCount: 2,
+      fullRunCount: 1,
+      phantomRunCount: 1,
+    });
+    assertCountsForParams(selectAllAppointmentsInOrder, null, {
+      invokeCount: 2,
+      fullRunCount: 1,
+      skippedRunCount: 1,
+    });
+    assertCountsForParams(selectAllAppointments, null, {
+      invokeCount: 3,
+      fullRunCount: 1,
+      skippedRunCount: 2,
+    });
+
+    // A second no-impact change
+    state = produce(state, (newState) => {
+      /* eslint-disable no-param-reassign */
+      newState.appointmentDataById[45].title = 'Break (day 2)';
+    });
+
+    const allAppointments_3 = selectAllAppointments(state);
+    const allAppointmentsInOrder_3 = selectAllAppointmentsInOrder(state);
+
+    assert.equal(allAppointmentsInOrder_3[5].title, 'Break');
+    assert.equal(allAppointments_3[5].title, 'Finals, day 1');
+    assertCountsForParams(selectRawAppointmentData, 5, {
+      invokeCount: 4,
+      fullRunCount: 1,
+      phantomRunCount: 2,
+      skippedRunCount: 1,
+    });
+    assertCountsForParams(selectAllAppointmentsInOrder, null, {
+      invokeCount: 3,
+      fullRunCount: 1,
+      skippedRunCount: 2,
+    });
+    assertCountsForParams(selectAllAppointments, null, {
+      invokeCount: 4,
+      fullRunCount: 2,
+      skippedRunCount: 2,
+    });
   });
 });
