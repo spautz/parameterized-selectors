@@ -473,8 +473,6 @@ const parameterizedSelectorFactory = (innerFn, overrideOptions = {}) => {
         // @TODO: Make overrideable options for these values
         if (resultRecord.invokeCount > 5 && resultRecord.fullRunCount > 0.75 * resultRecord.invokeCount) {
           options.performanceChecksCallback(`${loggingPrefix} is recomputing a lot: ${resultRecord.fullRunCount} of ${resultRecord.invokeCount} runs gave new results.`);
-        } else if (globalInvokeCount > 25 && globalFullRunCount > 0.75 * globalInvokeCount) {
-          options.performanceChecksCallback(`${options.displayName} is recomputing a lot in total: ${globalFullRunCount} of ${globalInvokeCount} runs gave new results.`);
         }
       }
     }
