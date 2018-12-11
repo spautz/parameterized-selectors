@@ -96,7 +96,7 @@ const getSelectors = () => {
   const selectAllAppointmentsInOrder = createParameterizedSelector(
     function _selectAllAppointmentsInOrder() {
       const allAppointments = selectAllAppointments();
-      return sortBy(allAppointments, 'day');
+      return sortBy(allAppointments, 'dayNum');
     },
     {
       performanceChecksEnabled: true,
@@ -131,7 +131,7 @@ const getSelectors = () => {
   const selectAppointmentsForDayRangeInOrder = createParameterizedSelector(
     function _selectAppointmentsForDayRangeInOrder({ startDayNum, endDayNum }) {
       const appointmentsInRange = selectAppointmentsForDayRange({ startDayNum, endDayNum });
-      return sortBy(appointmentsInRange, 'day');
+      return sortBy(appointmentsInRange, 'dayNum');
     },
     {
       performanceChecksEnabled: true,

@@ -10,7 +10,7 @@
     "url": "git+https://github.com/spautz/parameterized-selectors.git"
   },
   "scripts": {
-    "test": "nyc mocha --require babel-core/register tests/",
+    "test": "nyc mocha --require babel-core/register tests/*",
     "lint": "eslint .",
     "sendCoverage": "nyc report --reporter=text-lcov | coveralls"
   },

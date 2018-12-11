@@ -75,6 +75,9 @@ const KEY_PRESETS = {
     if (obj && typeof obj === 'object') {
       return JSON.stringify(obj);
     }
+    if (obj == null) {
+      return '{}';
+    }
     return String(obj);
   },
   JSON_STRING_WITH_STABLE_KEYS: (obj) => {

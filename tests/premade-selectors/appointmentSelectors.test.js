@@ -1,4 +1,5 @@
 /* eslint-env mocha */
+/* eslint-disable camelcase */
 import chai from 'chai';
 import produce from 'immer';
 
@@ -15,10 +16,10 @@ describe('Premade appointment selectors', () => {
   let selectRawAppointmentIds;
   let selectAppointmentById;
   let selectAllAppointments;
-  let selectAllAppointmentsInOrder;
-  let selectAppointmentsForDay;
-  let selectAppointmentsForDayRange;
-  let selectAppointmentsForDayRangeInOrder;
+  let selectAllAppointmentsInOrder; // eslint-disable-line no-unused-vars, @TODO: More tests
+  let selectAppointmentsForDay; // eslint-disable-line no-unused-vars, @TODO: More tests
+  let selectAppointmentsForDayRange; // eslint-disable-line no-unused-vars, @TODO: More tests
+  let selectAppointmentsForDayRangeInOrder; // eslint-disable-line no-unused-vars, @TODO: More tests
 
   beforeEach(() => {
     initialState = getInitialState();
@@ -43,7 +44,7 @@ describe('Premade appointment selectors', () => {
     const appointment2_1 = selectRawAppointmentData(state, 2);
 
     assert.equal(appointment1_1.title, 'Orientation');
-    assert.equal(tests/premade-selectors/appointmentSelectors.test.js:46.title, 'Classes begin');
+    assert.equal(appointment2_1.title, 'Classes begin');
     assertCountsForParams(selectRawAppointmentData, 1, {
       invokeCount: 1,
       fullRunCount: 1,
@@ -52,7 +53,7 @@ describe('Premade appointment selectors', () => {
     // A no-impact change
     state = produce(state, (newState) => {
       /* eslint-disable no-param-reassign */
-      newState.appointmentDataById = state.appointmentDataById;
+      newState.appointmentDataById = { ...state.appointmentDataById };
     });
 
     const appointment1_2 = selectRawAppointmentData(state, 1);
@@ -96,7 +97,7 @@ describe('Premade appointment selectors', () => {
 
   it('selectRawAppointmentIds', () => {
     let state = initialState;
-    let allAppointmentIds = selectRawAppointmentIds();
+    let allAppointmentIds = selectRawAppointmentIds(state);
 
     assert.equal(allAppointmentIds[10], 21);
     assert.equal(allAppointmentIds[11], 22);
@@ -114,7 +115,7 @@ describe('Premade appointment selectors', () => {
       };
     });
 
-    allAppointmentIds = selectRawAppointmentIds();
+    allAppointmentIds = selectRawAppointmentIds(state);
 
     assert.equal(allAppointmentIds[10], 21);
     assert.equal(allAppointmentIds[11], 22);
@@ -126,10 +127,10 @@ describe('Premade appointment selectors', () => {
     // A no-impact change
     state = produce(state, (newState) => {
       /* eslint-disable no-param-reassign */
-      newState.appointmentDataById = state.appointmentDataById;
+      newState.appointmentDataById = { ...state.appointmentDataById };
     });
 
-    allAppointmentIds = selectRawAppointmentIds();
+    allAppointmentIds = selectRawAppointmentIds(state);
 
     assert.equal(allAppointmentIds[10], 21);
     assert.equal(allAppointmentIds[11], 22);
@@ -143,11 +144,11 @@ describe('Premade appointment selectors', () => {
 
   it('selects appointment models by ID', () => {
     let state = initialState;
-    const appointment1 = selectAppointmentById(initialState, { appointmentId: 1 });
-    const appointment2 = selectAppointmentById(initialState, { appointmentId: 2 });
+    const appointment1_1 = selectAppointmentById(state, { appointmentId: 1 });
+    const appointment2_1 = selectAppointmentById(state, { appointmentId: 2 });
 
-    assert.equal(appointment1.title, 'Orientation');
-    assert.equal(appointment2.title, 'Classes begin');
+    assert.equal(appointment1_1.title, 'Orientation');
+    assert.equal(appointment2_1.title, 'Classes begin');
 
     assertCountsForParams(selectAppointmentById, { appointmentId: 1 }, {
       invokeCount: 1,
@@ -157,11 +158,14 @@ describe('Premade appointment selectors', () => {
     // A no-impact change
     state = produce(state, (newState) => {
       /* eslint-disable no-param-reassign */
-      newState.appointmentDataById = state.appointmentDataById;
+      newState.appointmentDataById = { ...state.appointmentDataById };
     });
 
-    assert.equal(appointment1, selectAppointmentById(state, { appointmentId: 1 }));
-    assert.equal(appointment2, selectAppointmentById(state, { appointmentId: 2 }));
+    const appointment1_2 = selectAppointmentById(state, { appointmentId: 1 });
+    const appointment2_2 = selectAppointmentById(state, { appointmentId: 2 });
+
+    assert.equal(appointment1_2, appointment1_1);
+    assert.equal(appointment2_2, appointment2_1);
 
     assertCountsForParams(selectRawAppointmentData, 1, {
       invokeCount: 2,
@@ -173,10 +177,29 @@ describe('Premade appointment selectors', () => {
       fullRunCount: 1,
       skippedRunCount: 1,
     });
+
+    // An impactful change
+    state = produce(state, (newState) => {
+      /* eslint-disable no-param-reassign */
+      newState.appointmentDataById[1].title = 'Welcome';
+      // eslint-disable-next-line no-self-assign
+      newState.appointmentDataById[2].title = state.appointmentDataById[2].title;
+    });
   });
 
   it('should return all appointment models', () => {
-    const appointmentList = selectAllAppointments(initialState);
+    let state = initialState;
+    const appointmentList_1 = selectAllAppointments(state);
+    assert.equal(appointmentList_1[1].title, 'Orientation');
 
+    // An impactful change
+    state = produce(state, (newState) => {
+      /* eslint-disable no-param-reassign */
+      newState.appointmentDataById[1].title = 'Welcome';
+    });
+
+    const appointmentList_2 = selectAllAppointments(state);
+    assert.equal(appointmentList_2[1].title, 'Welcome');
+    assert.equal(appointmentList_2[2].title, 'Classes begin');
   });
 });

@@ -1,29 +1,16 @@
 /* eslint-env mocha */
+/* eslint-disable camelcase */
 import chai from 'chai';
+import produce from 'immer';
+
 import { getInitialState, getSelectors } from './premade-selectors/appointmentSelectors';
+import { assertCountsForParams } from './util';
 
 const assert = chai.assert; // eslint-disable-line prefer-destructuring
 
 
-// This is basically an implementation of assert.deepInclude but with better error messages.
-// @TODO: Is this useful enough to promote this to its own file, and possibly export?
-const assertCountsForParams = (selectorFn, params, expectedCounts) => {
-  const actualCounts = selectorFn.getAllCountsForParams(params);
-  const verboseErrorInfo = `Checking counts for ${selectorFn.displayName}(${selectorFn.createKeyFromParams(params)}):
-      Expected: ${JSON.stringify(expectedCounts)}
-      Actual: ${JSON.stringify(actualCounts)}\n`;
-
-  Object.keys(expectedCounts).forEach(function (key) {
-    if (!Object.hasOwnProperty.call(actualCounts, key)) {
-      assert.fail(`${verboseErrorInfo}Invalid count type for assertCountsForParams: "${key}" not found`);
-    }
-    assert.equal(actualCounts[key], expectedCounts[key], `${verboseErrorInfo} Count type "${key}" should match`);
-  });
-};
-
-
 describe('Overlapping dependencies', () => {
-  const initialState = getInitialState();
+  let initialState;
 
   let selectRawAppointmentData;
   let selectRawAppointmentIds;
@@ -35,6 +22,8 @@ describe('Overlapping dependencies', () => {
   let selectAppointmentsForDayRangeInOrder;
 
   beforeEach(() => {
+    initialState = getInitialState();
+
     // The selectors get recreated for each test, to reset their call counts.
     ({
       selectRawAppointmentData,
@@ -49,4 +38,90 @@ describe('Overlapping dependencies', () => {
   });
 
 
+  it('works properly when selecting outer selector before inner', () => {
+    let state = initialState;
+    const allAppointmentsInOrder_1 = selectAllAppointmentsInOrder(state);
+    const allAppointments_1 = selectAllAppointments(state);
+
+    assert.equal(allAppointmentsInOrder_1[5].title, 'Break');
+    assert.equal(allAppointments_1[5].title, 'Finals, day 1');
+    assertCountsForParams(selectRawAppointmentData, 5, {
+      invokeCount: 1,
+      fullRunCount: 1,
+    });
+    assertCountsForParams(selectAllAppointmentsInOrder, null, {
+      invokeCount: 1,
+      fullRunCount: 1,
+    });
+    assertCountsForParams(selectAllAppointments, null, {
+      invokeCount: 2,
+      fullRunCount: 1,
+      skippedRunCount: 1,
+    });
+
+    // A no-impact change
+    state = produce(state, (newState) => {
+      /* eslint-disable no-param-reassign */
+      newState.appointmentDataById = { ...state.appointmentDataById };
+    });
+
+    const allAppointmentsInOrder_2 = selectAllAppointmentsInOrder(state);
+    const allAppointments_2 = selectAllAppointments(state);
+
+    assert.equal(allAppointmentsInOrder_2[5].title, 'Break');
+    assert.equal(allAppointments_2[5].title, 'Finals, day 1');
+    assertCountsForParams(selectRawAppointmentData, 5, {
+      invokeCount: 3,
+      fullRunCount: 1,
+      phantomRunCount: 1,
+      skippedRunCount: 1,
+    });
+    assertCountsForParams(selectAllAppointmentsInOrder, null, {
+      invokeCount: 2,
+      fullRunCount: 1,
+      skippedRunCount: 1,
+    });
+    assertCountsForParams(selectAllAppointments, null, {
+      invokeCount: 3,
+      fullRunCount: 1,
+      skippedRunCount: 2,
+    });
+
+    // A second no-impact change
+    state = produce(state, (newState) => {
+      /* eslint-disable no-param-reassign */
+      newState.appointmentDataById[45].title = 'Break (day 2)';
+    });
+
+    const allAppointmentsInOrder_3 = selectAllAppointmentsInOrder(state);
+    const allAppointments_3 = selectAllAppointments(state);
+
+    assert.equal(allAppointmentsInOrder_3[5].title, 'Break');
+    assert.equal(allAppointments_3[5].title, 'Finals, day 1');
+    assertCountsForParams(selectRawAppointmentData, 5, {
+      invokeCount: 6, // @FIXME: This value looks wrong: should it be 5?
+      fullRunCount: 1,
+      phantomRunCount: 2,
+      skippedRunCount: 3,
+    });
+    assertCountsForParams(selectAllAppointmentsInOrder, null, {
+      invokeCount: 3,
+      fullRunCount: 2,
+      skippedRunCount: 1,
+    });
+    assertCountsForParams(selectAllAppointments, null, {
+      invokeCount: 6,
+      fullRunCount: 2,
+      skippedRunCount: 4,
+    });
+  });
+
+  it('works properly when selecting outer selector before inner, with a different selector', () => {
+  });
+
+  it('works properly when selecting inner selector before outer', () => {
+  });
+
+  it('works properly when selecting inner selector before outer, with a different selector', () => {
+  });
 });
