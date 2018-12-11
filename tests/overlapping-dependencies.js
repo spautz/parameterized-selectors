@@ -13,13 +13,13 @@ describe('Overlapping dependencies', () => {
   let initialState;
 
   let selectRawAppointmentData;
-  let selectRawAppointmentIds;
-  let selectAppointmentById;
+  // let selectRawAppointmentIds;
+  // let selectAppointmentById;
   let selectAllAppointments;
   let selectAllAppointmentsInOrder;
-  let selectAppointmentsForDay;
-  let selectAppointmentsForDayRange;
-  let selectAppointmentsForDayRangeInOrder;
+  // let selectAppointmentsForDay;
+  // let selectAppointmentsForDayRange;
+  // let selectAppointmentsForDayRangeInOrder;
 
   beforeEach(() => {
     initialState = getInitialState();
@@ -27,13 +27,13 @@ describe('Overlapping dependencies', () => {
     // The selectors get recreated for each test, to reset their call counts.
     ({
       selectRawAppointmentData,
-      selectRawAppointmentIds,
-      selectAppointmentById,
+      // selectRawAppointmentIds,
+      // selectAppointmentById,
       selectAllAppointments,
       selectAllAppointmentsInOrder,
-      selectAppointmentsForDay,
-      selectAppointmentsForDayRange,
-      selectAppointmentsForDayRangeInOrder,
+      // selectAppointmentsForDay,
+      // selectAppointmentsForDayRange,
+      // selectAppointmentsForDayRangeInOrder,
     } = getSelectors());
   });
 
