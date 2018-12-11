@@ -40,7 +40,7 @@ const defaultOptions = {
   useConsoleGroup: true,
   verboseLoggingEnabled: false,
   verboseLoggingCallback: console.log, /* eslint-disable-line no-console */
-  performanceChecksEnabled: (typeof __DEV__ !== 'undefined' && !!__DEV__),
+  performanceChecksEnabled: false,
   performanceChecksCallback: console.log, /* eslint-disable-line no-console */
   warningsEnabled: true,
   warningsCallback: console.warn, /* eslint-disable-line no-console */
