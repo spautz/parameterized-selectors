@@ -18,7 +18,7 @@ const willThrowErrorIfNotSet = label => () => {
 const defaultInitialOptions = {
   displayNamePrefix: 'parameterizedSelector',
   compareIncomingStates: COMPARISON_PRESETS.SAME_REFERENCE,
-  compareSelectorResults: COMPARISON_PRESETS.SAME_REFERENCE_OR_EMPTY,
+  compareSelectorResults: COMPARISON_PRESETS.SHALLOW_EQUAL,
   exceptionCallback: (errorMessage, error) => {
     console.error(errorMessage, error); // eslint-disable-line no-console
     throw error;
