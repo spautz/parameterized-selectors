@@ -2,7 +2,7 @@
   "name": "parameterized-selectors",
   "version": "0.0.1",
   "license": "MIT",
-  "description": "A Reselect-inspired library where selectors can use params",
+  "description": "DEPRECATED. A Reselect-inspired library where selectors can use params",
   "author": "Steven Pautz",
   "homepage": "https://github.com/spautz/parameterized-selectors#readme",
   "repository": {

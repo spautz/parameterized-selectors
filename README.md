@@ -1,8 +1,11 @@
-# parameterized-selectors
+# DEPRECATED
 
-[![Build Status](https://travis-ci.com/spautz/parameterized-selectors.svg?branch=master)](https://travis-ci.com/spautz/parameterized-selectors)
-[![Coverage Status](https://coveralls.io/repos/github/spautz/parameterized-selectors/badge.svg?branch=master)](https://coveralls.io/github/spautz/parameterized-selectors?branch=master)
-[![BCH compliance](https://bettercodehub.com/edge/badge/spautz/parameterized-selectors?branch=master)](https://bettercodehub.com/results/spautz/parameterized-selectors)
+This package is out-of-date and unsupported. Please use **[Dynamic Selectors](https://github.com/spautz/dynamic-selectors)
+([@dynamic-selectors/core](https://github.com/spautz/dynamic-selectors/tree/main/packages/core))** instead.
+
+[![No Maintenance Intended](http://unmaintained.tech/badge.svg)](http://unmaintained.tech/)
+
+# parameterized-selectors
 
 A Reselect-inspired library, where selectors can be passed params and their dependencies are calculated automatically.
 
