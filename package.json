@@ -10,7 +10,7 @@
     "url": "git+https://github.com/spautz/parameterized-selectors.git"
   },
   "scripts": {
-    "test": "nyc mocha --require babel-core/register tests/",
+    "test": "nyc mocha --require babel-core/register tests/*",
     "lint": "eslint .",
     "sendCoverage": "nyc report --reporter=text-lcov | coveralls"
   },
@@ -40,6 +40,7 @@
     "eslint": "^5.2.0",
     "eslint-config-airbnb": "^17.0.0",
     "eslint-plugin-import": "^2.13.0",
+    "immer": "1.8.0",
     "mocha": "^5.2.0",
     "nyc": "^12.0.2"
   }

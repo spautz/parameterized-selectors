@@ -16,7 +16,7 @@ const willThrowErrorIfNotSet = label => () => {
  * if the consumer ever needs to reference the original value, after setting new defaults.
  */
 const defaultInitialOptions = {
-  displayNamePrefix: 'parameterizedSelector',
+  displayNamePrefix: 'parameterizedSelector:',
   compareIncomingStates: COMPARISON_PRESETS.SAME_REFERENCE,
   compareSelectorResults: COMPARISON_PRESETS.SHALLOW_EQUAL,
   exceptionCallback: (errorMessage, error) => {
@@ -38,6 +38,8 @@ const defaultOptions = {
   // Some options can be changed anytime
   displayName: null,
   useConsoleGroup: true,
+  runLoggingEnabled: false,
+  runLoggingCallback: console.log, // eslint-disable-line no-console
   verboseLoggingEnabled: false,
   verboseLoggingCallback: console.log, // eslint-disable-line no-console
   performanceChecksEnabled: (typeof __DEV__ !== 'undefined' && !!__DEV__),
@@ -51,6 +53,7 @@ const defaultOptions = {
   onPhantomRun: null,
   onFullRun: null,
   onAbortedRun: null,
+  onErrorRun: null,
 };
 
 // Note that there is no `setDefaultOptions`:

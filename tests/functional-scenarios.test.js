@@ -228,10 +228,10 @@ describe('Selectors for single objects', () => {
     assert.equal(selectAuthor.getInvokeCountForParams({ authorId: 1 }), 3);
     assert.equal(selectAuthor.getFullRunCountForParams({ authorId: 1 }), 1);
     assert.equal(selectAuthor.getSkippedRunCountForParams({ authorId: 1 }), 2);
-    assert.equal(selectRawAuthorData.getInvokeCountForParams(1), 3);
+    assert.equal(selectRawAuthorData.getInvokeCountForParams(1), 2);
     assert.equal(selectRawAuthorData.getFullRunCountForParams(1), 1);
     assert.equal(selectRawAuthorData.getPhantomRunCountForParams(1), 1);
-    assert.equal(selectRawAuthorData.getSkippedRunCountForParams(1), 1);
+    assert.equal(selectRawAuthorData.getSkippedRunCountForParams(1), 0);
   });
 
   it('should return the author for a book', () => {
