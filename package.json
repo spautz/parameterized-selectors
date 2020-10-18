@@ -28,7 +28,7 @@
     "src"
   ],
   "dependencies": {
-    "lodash": "4.17.10"
+    "lodash": "4.17.19"
   },
   "devDependencies": {
     "babel-cli": "^6.26.0",
